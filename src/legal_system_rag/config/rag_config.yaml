@@ -1,0 +1,22 @@
+llm:
+  llm_enrichment: gpt-5.4-mini
+  llm_query: gpt-5.4-nano
+  llm_answer: gpt-5.4-mini
+
+embedding:
+  embedding_model: text-embedding-3-small
+
+chunking:
+  size: 1000
+  overlap: 200
+
+# Neue Sektion für Netzwerk / Client Settings
+network:
+  px_host: "127.0.0.1"
+  px_port: 3128
+  timeout: 60.0
+  retries: 3
+
+paths:
+  documents: data/dokumente_mietrecht
+  rag_vector_db: chroma_legal_rag

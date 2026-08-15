@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "legal-system-rag"
+version = "0.1.0"
+description = "Legal RAG system for German tenancy law documents"
+requires-python = ">=3.12"
+
+authors = [
+    { name = "Guangfa Wu" }
+]
+
+license = { text = "MIT" }
+
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "langchain-core>=0.2.0",
+    "langchain-openai>=0.1.0",
+    "langchain-chroma>=0.1.0",
+    "chromadb>=0.5.0",
+    "streamlit>=1.30.0",
+    "httpx>=0.25.0",
+    "urllib3>=2.0.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0.0",
+    "certifi>=2024.7.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-anyio>=0.0.0",
+    "notebook>=7.0.0",
+    "ipykernel>=6.0.0",
+    "pytest-cov",
+]
+
+pdf = [
+    "pypdf>=4.0.0",
+]
+
+[project.scripts]
+legal-ingest = "legal_system_rag.ingest_documents:main"
+legal-app = "legal_system_rag.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_functions = ["test_*"]
+python_classes = ["Test*"]
+
+# Pytest-Standardverhalten inklusive Branch Coverage (Zweigabdeckung)
+addopts = "-v --import-mode=importlib --cov=src --cov-branch --cov-report=term-missing --cov-report=html"
+
+# Registrierte Custom Markers
+markers = [
+    "unit: Unit tests without external dependencies",
+    "integration: Integration tests using external services or infrastructure",
+    "e2e: End-to-end tests covering the complete application workflow",
+    "proxy: Tests requiring a local NTLM Px proxy instance",
+]
+
+# NEU: Steuerung des Coverage-Verhaltens (z.B. Zeilen ausschließen)
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]

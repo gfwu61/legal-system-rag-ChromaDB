@@ -1,0 +1,34 @@
+name: Python Tests
+
+# Wann soll der Workflow laufen?
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Code aus dem GitHub-Repo auf den Runner-Server laden
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # 2. Python-Umgebung einrichten
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    # 3. Projekt und Test-Abhängigkeiten installieren
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev]
+
+    # 4. Pytest ausführen
+    - name: Run Pytest
+      run: |
+        pytest

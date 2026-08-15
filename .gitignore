@@ -1,0 +1,66 @@
+# Security & Credentials
+# Zusätzliche Absicherung für Streamlit & Secrets
+.streamlit/*.toml
+*.env*
+certs/
+!certs/README.md
+
+# Application Data & Databases
+chroma_legal_rag*/
+*.log
+data/
+models/
+
+# Personal documentation
+docs/
+
+# Temporäre Upload-Verzeichnisse von Streamlit (falls vorhanden)
+tmp/
+uploads/
+
+# Testing & Coverage (Neu für pytest-cov)
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.nox/
+.tox/
+
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+*.egg-info/
+.eggs/
+dist/
+build/
+local_settings.py
+
+# Jupyter Notebooks
+notebooks/
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Operating System Files
+*.DS_Store
+Thumbs.db
+Desktop.ini
+
+
+
+
