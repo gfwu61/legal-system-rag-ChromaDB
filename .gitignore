@@ -2,7 +2,8 @@
 # Zusätzliche Absicherung für Streamlit & Secrets
 .streamlit/*.toml
 *.env*
-certs/
+certs/*
+# Erlaube die README.md ausdrücklich
 !certs/README.md
 
 # Application Data & Databases
