@@ -1,7 +1,7 @@
 
 # Legal RAG System
 
-A production-oriented Retrieval-Augmented Generation (RAG) system for answering questions about German tenancy law (Mietrecht).
+A professional Retrieval-Augmented Generation (RAG) system for answering questions about German tenancy law (Mietrecht).
 
 The system combines:
 
@@ -21,7 +21,7 @@ The application retrieves relevant legal documents from a persistent ChromaDB ve
 
 # 1. Project Overview
 
-The goal of this project is to build a complete legal RAG pipeline for German tenancy law.
+An end-to-end RAG pipeline demonstrating professional AI engineering practices using a curated set of German tenancy law texts
 
 The system follows this general architecture:
 
@@ -1440,7 +1440,7 @@ Then open the Streamlit application in the browser.
 
 # 36. Summary
 
-This project implements a complete RAG application for German tenancy law.
+An end-to-end RAG pipeline demonstrating professional AI engineering practices using a curated set of German tenancy law texts
 
 The architecture separates:
 
