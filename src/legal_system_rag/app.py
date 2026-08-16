@@ -10,6 +10,7 @@ from streamlit.components.v1 import html
 
 from legal_system_rag.config.settings import (
     EMBEDDING_MODEL,
+    IGNORE_SSL,
     LLM_ANSWER_MODEL,
     LLM_QUERY_MODEL,
     PERSIST_DIRECTORY,
@@ -66,16 +67,19 @@ HELP_QUESTIONS = {
 # ============================================================
 
 @st.cache_resource
-def load_http_client(proxy_url: str | None):
+def load_http_client(
+    proxy_url: str | None,
+):
     """
-    Creates and caches a synchronous HTTPX client.
+    Create and cache a synchronous HTTPX client.
 
     The client is reused across Streamlit interactions to avoid
     creating a new HTTP connection for every request.
     """
 
     return create_http_client(
-        proxy_url=proxy_url
+        proxy_url=proxy_url,
+        ignore_ssl=IGNORE_SSL,
     )
 
 
@@ -89,7 +93,7 @@ def load_resources(
     proxy_url: str | None,
 ):
     """
-    Initializes the OpenAI embeddings, LLMs, and ChromaDB.
+    Initialize the OpenAI embeddings, LLMs, and ChromaDB.
 
     The HTTP client is used for OpenAI communication.
 
@@ -160,7 +164,7 @@ def load_rag_chain(
     _vector_store,
 ):
     """
-    Builds and caches the RAG chain.
+    Build and cache the RAG chain.
     """
 
     return build_rag_chain(
@@ -178,7 +182,7 @@ def render_sources(
     source_docs: list[Any] | None,
 ) -> None:
     """
-    Displays the documents retrieved by the RAG system.
+    Display the documents retrieved by the RAG system.
 
     Each source displays its paragraph number, source file,
     and retrieved legal text.
@@ -237,7 +241,7 @@ def render_sources(
 
 def render_chat_history() -> None:
     """
-    Renders the conversation history stored in Streamlit
+    Render the conversation history stored in Streamlit
     session state.
     """
 
@@ -270,17 +274,13 @@ def render_chat_history() -> None:
 
 def render_help_column() -> str | None:
     """
-    Displays example legal questions in the help column.
+    Display example legal questions in the help column.
 
     Returns the selected example question when the user
     clicks one of the example buttons.
     """
 
     selected_question = None
-
-    # --------------------------------------------------------
-    # Title is intentionally outside any fixed-height area.
-    # --------------------------------------------------------
 
     st.subheader(
         "💡 Example Questions"
@@ -323,7 +323,7 @@ def render_help_column() -> str | None:
 
 def initialize_resources():
     """
-    Initializes the proxy, HTTP client, LLMs, vector store
+    Initialize the proxy, HTTP client, LLMs, vector store
     and RAG chain.
     """
 
@@ -360,7 +360,7 @@ def process_question(
     user_input: str,
 ) -> None:
     """
-    Executes the RAG pipeline for a user question.
+    Execute the RAG pipeline for a user question.
 
     The question is added to the conversation history,
     the RAG chain is invoked, and the generated answer
@@ -445,7 +445,7 @@ def process_question(
 
 def scroll_chat_to_bottom() -> None:
     """
-    Scrolls the chat area to the newest message.
+    Scroll the chat area to the newest message.
 
     The script searches for the scrollable Streamlit
     container and moves it to its bottom.
@@ -521,7 +521,7 @@ def scroll_chat_to_bottom() -> None:
 
 def main() -> None:
     """
-    Runs the Streamlit Legal RAG application.
+    Run the Streamlit Legal RAG application.
 
     The function initializes the RAG infrastructure,
     displays the chat history, provides example questions,
@@ -595,26 +595,13 @@ def main() -> None:
 
     with chat_column:
 
-        # ----------------------------------------------------
-        # IMPORTANT:
-        # Title remains outside the scrollable area.
-        # ----------------------------------------------------
-
         st.subheader(
             "💬 Legal Chatbot"
         )
 
-        # ----------------------------------------------------
-        # Question input
-        # ----------------------------------------------------
-
         user_input = st.chat_input(
             "Ask your legal question in German..."
         )
-
-        # ----------------------------------------------------
-        # Scrollable chat area
-        # ----------------------------------------------------
 
         chat_area = st.container(
             height=620,
@@ -623,10 +610,6 @@ def main() -> None:
 
         with chat_area:
 
-            # ------------------------------------------------
-            # Conversation history
-            # ------------------------------------------------
-
             render_chat_history()
 
     # ========================================================
@@ -634,10 +617,6 @@ def main() -> None:
     # ========================================================
 
     with help_column:
-
-        # ----------------------------------------------------
-        # Title remains outside any fixed-height area.
-        # ----------------------------------------------------
 
         selected_question = (
             render_help_column()
@@ -654,11 +633,9 @@ def main() -> None:
     )
 
     if not question:
-
         return
 
     if not question.strip():
-
         return
 
     question = question.strip()

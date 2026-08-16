@@ -11,11 +11,13 @@ chunking:
   overlap: 200
 
 # Neue Sektion für Netzwerk / Client Settings
+# ignore_ssl: False (as default, using True for test)
 network:
   px_host: "127.0.0.1"
   px_port: 3128
   timeout: 60.0
   retries: 3
+  ignore_ssl: False
 
 paths:
   documents: data/dokumente_mietrecht

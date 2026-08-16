@@ -7,6 +7,7 @@ import httpx
 from legal_system_rag.config import (
     CERT_FILE,
     COMPANY_PROXY_URL,
+    IGNORE_SSL,
     PX_HOST,
     PX_PORT,
     RETRIES,
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def check_if_px_is_running() -> bool:
     """
-    Prüft, ob der lokale PX-Proxy erreichbar ist.
+    Check whether the local PX proxy is reachable.
     """
     try:
         with socket.create_connection(
@@ -32,23 +33,19 @@ def check_if_px_is_running() -> bool:
 
 
 def create_ssl_context(
-    ignore_ssl: bool = False,
+    ignore_ssl: bool = IGNORE_SSL,
 ) -> ssl.SSLContext:
     """
-    Erstellt den SSL-Kontext mit dem konfigurierten CA-Bundle.
+    Create the SSL context using the configured CA bundle.
 
     Args:
         ignore_ssl:
-            Deaktiviert die Zertifikats- und Hostnamenprüfung.
-            Nur für Tests verwenden.
-
-    Raises:
-        FileNotFoundError:
-            Wenn CERT_FILE nicht existiert.
+            Disable certificate and hostname verification.
+            Only use for tests.
     """
     if not CERT_FILE.exists():
         raise FileNotFoundError(
-            f"CA-Zertifikat wurde nicht gefunden: {CERT_FILE}"
+            f"CA certificate was not found: {CERT_FILE}"
         )
 
     context = ssl.create_default_context(
@@ -57,8 +54,8 @@ def create_ssl_context(
 
     if ignore_ssl:
         logger.warning(
-            "SSL-Zertifikatsprüfung ist deaktiviert. "
-            "Nur für Tests verwenden!"
+            "SSL certificate verification is disabled. "
+            "Only use this for tests!"
         )
 
         context.check_hostname = False
@@ -69,18 +66,18 @@ def create_ssl_context(
 
 def get_proxy_url() -> str | None:
     """
-    Ermittelt den zu verwendenden Proxy.
+    Determine which proxy to use.
 
-    Priorität:
-        1. Lokaler PX-Proxy.
-        2. Unternehmensproxy.
-        3. Direkte Verbindung.
+    Priority:
+        1. Local PX proxy.
+        2. Company proxy.
+        3. Direct connection.
     """
     if check_if_px_is_running():
         proxy_url = f"http://{PX_HOST}:{PX_PORT}"
 
         logger.debug(
-            "Lokaler PX-Proxy wird verwendet: %s",
+            "Using local PX proxy: %s",
             proxy_url,
         )
 
@@ -90,13 +87,13 @@ def get_proxy_url() -> str | None:
 
     if proxy_url:
         logger.debug(
-            "Unternehmensproxy wird verwendet: %s",
+            "Using company proxy: %s",
             proxy_url,
         )
     else:
         logger.debug(
-            "Keine Proxy-Verbindung. "
-            "Direkte Verbindung wird verwendet."
+            "No proxy connection. "
+            "Using direct connection."
         )
 
     return proxy_url
@@ -104,16 +101,16 @@ def get_proxy_url() -> str | None:
 
 def create_http_client(
     proxy_url: str | None = None,
-    ignore_ssl: bool = False,
+    ignore_ssl: bool = IGNORE_SSL,
 ) -> httpx.Client:
     """
-    Erstellt einen synchronen HTTPX-Client.
+    Create a synchronous HTTPX client.
 
     Args:
         proxy_url:
-            Proxy-URL oder None für eine direkte Verbindung.
+            Proxy URL or None for a direct connection.
         ignore_ssl:
-            Deaktiviert die SSL-Prüfung. Nur für Tests verwenden.
+            Disable SSL verification. Only use for tests.
     """
     ssl_context = create_ssl_context(
         ignore_ssl=ignore_ssl
@@ -134,16 +131,16 @@ def create_http_client(
 
 def create_async_http_client(
     proxy_url: str | None = None,
-    ignore_ssl: bool = False,
+    ignore_ssl: bool = IGNORE_SSL,
 ) -> httpx.AsyncClient:
     """
-    Erstellt einen asynchronen HTTPX-Client.
+    Create an asynchronous HTTPX client.
 
     Args:
         proxy_url:
-            Proxy-URL oder None für eine direkte Verbindung.
+            Proxy URL or None for a direct connection.
         ignore_ssl:
-            Deaktiviert die SSL-Prüfung. Nur für Tests verwenden.
+            Disable SSL verification. Only use for tests.
     """
     ssl_context = create_ssl_context(
         ignore_ssl=ignore_ssl

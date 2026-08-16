@@ -6,6 +6,7 @@ from .settings import (
     DOCUMENTS_DIR,
     EDITABLE_TEST_MARKER,
     EMBEDDING_MODEL,
+    IGNORE_SSL,
     LLM_ANSWER_MODEL,
     LLM_ENRICHMENT_MODEL,
     LLM_QUERY_MODEL,
@@ -38,4 +39,5 @@ __all__ = [
     "PX_PORT",
     "TIMEOUT",
     "RETRIES",
+    "IGNORE_SSL",
 ]

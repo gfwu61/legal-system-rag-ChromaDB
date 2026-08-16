@@ -1,9 +1,8 @@
 import hashlib
-import os
 import logging
-from pathlib import Path
-
+import os
 from collections import Counter
+from pathlib import Path
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -12,6 +11,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from legal_system_rag.config.settings import (
     DOCUMENTS_DIR,
     EMBEDDING_MODEL,
+    IGNORE_SSL,
     LLM_ENRICHMENT_MODEL,
     OPENAI_API_KEY,
     PERSIST_DIRECTORY,
@@ -32,6 +32,10 @@ from legal_system_rag.rag.chain import (
 )
 from legal_system_rag.rag.prompts import EnrichmentOutput
 
+
+# ============================================================
+# LOGGING
+# ============================================================
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 LOG_FILE = PROJECT_DIR / "ingest.log"
@@ -57,19 +61,20 @@ if not logger.handlers:
 logger.propagate = False
 
 
-
-
+# ============================================================
+# DOCUMENT ID
+# ============================================================
 
 def create_document_id(doc: Document) -> str:
     """
-    Erstellt eine stabile ID für ein Dokument.
+    Create a stable ID for a document.
 
-    Die ID besteht aus:
-    - Quelldatei
-    - Paragraph
-    - Absatz
-    - Nummer
-    - SHA-256-Hash des Originaltexts
+    The ID consists of:
+    - source file
+    - paragraph
+    - subsection
+    - number
+    - SHA-256 hash of the original text
     """
 
     metadata = doc.metadata
@@ -116,9 +121,13 @@ def create_document_id(doc: Document) -> str:
     )
 
 
+# ============================================================
+# ID VALIDATION
+# ============================================================
+
 def validate_unique_ids(ids: list[str]) -> None:
     """
-    Prüft, ob alle Dokument-IDs eindeutig sind.
+    Check whether all document IDs are unique.
     """
 
     counts = Counter(ids)
@@ -131,10 +140,14 @@ def validate_unique_ids(ids: list[str]) -> None:
 
     if duplicate_ids:
         raise ValueError(
-            "Doppelte Dokument-IDs gefunden: "
+            "Duplicate document IDs found: "
             f"{duplicate_ids}"
         )
 
+
+# ============================================================
+# DOCUMENT CREATION
+# ============================================================
 
 def process_and_create_doc(
     gesetz_name: str,
@@ -147,7 +160,7 @@ def process_and_create_doc(
     structured_llm,
 ) -> Document:
     """
-    Erstellt aus einem Gesetzesabschnitt ein Dokument.
+    Create a Document from a section of a law.
     """
 
     references = extract_references(original_text)
@@ -183,14 +196,17 @@ def process_and_create_doc(
     )
 
 
+# ============================================================
+# DOCUMENT LOGGING
+# ============================================================
+
 def log_documents(
     documents: list[Document],
     ids: list[str],
 ) -> None:
     """
-    Schreibt alle erzeugten Document-Objekte
-    inklusive IDs, page_content und Metadaten
-    in ingest.log.
+    Write all generated Document objects including IDs,
+    page_content and metadata to ingest.log.
     """
 
     logger.info("=" * 100)
@@ -227,12 +243,14 @@ def log_documents(
     )
 
 
-    
+# ============================================================
+# INGESTION PIPELINE
+# ============================================================
 
 def run_ingestion() -> None:
     """
-    Liest TXT-Dateien ein, erzeugt Dokument-Chunks,
-    reichert sie per LLM an und speichert sie in Chroma.
+    Read TXT files, create document chunks, enrich them
+    using the LLM and store them in Chroma.
     """
 
     if not (
@@ -251,31 +269,52 @@ def run_ingestion() -> None:
         exist_ok=True,
     )
 
+    # ========================================================
+    # PROXY & HTTP CLIENT
+    # ========================================================
+
     proxy_url = get_proxy_url()
 
     sync_client = create_http_client(
         proxy_url=proxy_url,
+        ignore_ssl=IGNORE_SSL,
     )
-    # langchain uses OPENAI_API_KEY as standard env, api_key=OPENAI_API_KEY(as variable) is optional
+
+    logger.info(
+        "Ingestion HTTP client created | proxy=%s | ignore_ssl=%s",
+        proxy_url,
+        IGNORE_SSL,
+    )
+
     try:
+        # ====================================================
+        # EMBEDDINGS
+        # ====================================================
+
         embeddings = OpenAIEmbeddings(
             model=EMBEDDING_MODEL,
-            #api_key=OPENAI_API_KEY, 
+            # api_key=OPENAI_API_KEY,
             http_client=sync_client,
-           
         )
+
+        # ====================================================
+        # CHROMA
+        # ====================================================
 
         vector_store = Chroma(
             persist_directory=str(PERSIST_DIRECTORY),
             embedding_function=embeddings,
         )
 
+        # ====================================================
+        # LLM ENRICHMENT
+        # ====================================================
+
         llm_enrichment = ChatOpenAI(
             model=LLM_ENRICHMENT_MODEL,
             # api_key=OPENAI_API_KEY,
             temperature=0.2,
             http_client=sync_client,
-
         )
 
         structured_llm = (
@@ -285,6 +324,10 @@ def run_ingestion() -> None:
         )
 
         all_documents: list[Document] = []
+
+        # ====================================================
+        # FIND SOURCE FILES
+        # ====================================================
 
         txt_files = sorted(
             DOCUMENTS_DIR.glob("*.txt")
@@ -296,6 +339,10 @@ def run_ingestion() -> None:
                 f"'{DOCUMENTS_DIR}' gefunden."
             )
             return
+
+        # ====================================================
+        # PROCESS FILES
+        # ====================================================
 
         for filepath in txt_files:
             filename = filepath.name
@@ -337,6 +384,10 @@ def run_ingestion() -> None:
                         absatz_content
                     )
 
+                    # ========================================
+                    # ABSATZ WITHOUT NUMBER
+                    # ========================================
+
                     if not nummern:
                         doc = process_and_create_doc(
                             gesetz_name=gesetz_name,
@@ -351,6 +402,10 @@ def run_ingestion() -> None:
 
                         all_documents.append(doc)
                         continue
+
+                    # ========================================
+                    # INTRODUCTION TEXT
+                    # ========================================
 
                     intro_text = nummern[0].get(
                         "intro_isolated",
@@ -371,6 +426,10 @@ def run_ingestion() -> None:
 
                         all_documents.append(doc_intro)
 
+                    # ========================================
+                    # NUMBERED ITEMS
+                    # ========================================
+
                     for nummer_item in nummern:
                         doc_nummer = process_and_create_doc(
                             gesetz_name=gesetz_name,
@@ -384,6 +443,10 @@ def run_ingestion() -> None:
                         )
 
                         all_documents.append(doc_nummer)
+
+        # ====================================================
+        # VALIDATE DOCUMENTS
+        # ====================================================
 
         if not all_documents:
             print(
@@ -399,17 +462,23 @@ def run_ingestion() -> None:
 
         validate_unique_ids(ids)
 
+        # ====================================================
+        # LOG DOCUMENTS
+        # ====================================================
+
         logger.info(
             "Speichere %d Dokument-Chunks in Chroma",
-        len(all_documents),
+            len(all_documents),
         )
 
         log_documents(
-        documents=all_documents,
-        ids=ids,
+            documents=all_documents,
+            ids=ids,
         )
 
-
+        # ====================================================
+        # STORE DOCUMENTS
+        # ====================================================
 
         print(
             f"\n💾 Speichere {len(all_documents)} "
@@ -429,7 +498,7 @@ def run_ingestion() -> None:
     finally:
         sync_client.close()
 
-        # Der AsyncClient wird hier nicht synchron geschlossen.
-        # In einer vollständig asynchronen Pipeline:
+        # The AsyncClient is not closed synchronously here.
+        # In a fully asynchronous pipeline:
         #
         # await async_client.aclose()
