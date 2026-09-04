@@ -13,20 +13,27 @@ authors = [
 ]
 
 license = { text = "MIT" }
-
 dependencies = [
-    "python-dotenv>=1.0.0",
+    "certifi>=2024.7.4",
+    "chromadb>=0.5.0",
+    "flashrank>=0.2.0",
+    "httpx>=0.25.0",
+    "langchain>=0.2.0",
+    "langchain-chroma>=0.1.0",
+    "langchain-classic>=1.0.0",
+    "langchain-community>=0.2.0",
     "langchain-core>=0.2.0",
     "langchain-openai>=0.1.0",
-    "langchain-chroma>=0.1.0",
-    "chromadb>=0.5.0",
-    "streamlit>=1.30.0",
-    "httpx>=0.25.0",
-    "urllib3>=2.0.0",
     "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
     "pyyaml>=6.0.0",
-    "certifi>=2024.7.4",
+    "rank-bm25>=0.2.2",
+    "streamlit>=1.30.0",
+    "tenacity>=9.0.0",
+    "urllib3>=2.0.0",
 ]
+
+
 
 [project.optional-dependencies]
 dev = [

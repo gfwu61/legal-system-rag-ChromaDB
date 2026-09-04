@@ -11,4 +11,5 @@ __all__ = [
     "retrieve_documents",
     "generate_answer",
     "build_rag_chain",
+    "creat_structured_body",
 ]

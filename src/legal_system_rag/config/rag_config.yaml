@@ -1,14 +1,34 @@
 llm:
-  llm_enrichment: gpt-5.4-mini
+  llm_enrichment: gpt-5.4-nano
   llm_query: gpt-5.4-nano
   llm_answer: gpt-5.4-mini
 
 embedding:
   embedding_model: text-embedding-3-small
 
+
+# vector_store: 1: chroma; 2: pinecone  
+vector_DB:
+  vector_store: 1 
+  legal_index: German_Law
+  namespace_Mietrecht: Mietrecht
+  namespace_Steuerrecht: Steuerrecht
+
+# mode: 1 , classic(dense+spare-bm25)+reranker), 2: BlendedFlashRankRetriever
+# weight_hybrid=0.5, weight_reranker= 1 - weight_hybrid=0.5
+retriever:
+  retriever_mode: 2
+  weight_hybrid: 0.4
+  top_k: 8
+  top_bm25_k: 30
+
+
 chunking:
   size: 1000
   overlap: 200
+  batch_size: 20
+
+
 
 # Neue Sektion für Netzwerk / Client Settings
 # ignore_ssl: False (as default, using True for test)

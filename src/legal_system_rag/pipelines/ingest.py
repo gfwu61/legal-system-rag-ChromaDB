@@ -1,8 +1,11 @@
 import hashlib
 import logging
 import os
+import re
+import time
 from collections import Counter
 from pathlib import Path
+import textwrap
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -15,6 +18,7 @@ from legal_system_rag.config.settings import (
     LLM_ENRICHMENT_MODEL,
     OPENAI_API_KEY,
     PERSIST_DIRECTORY,
+    BATCH_SIZE,
 )
 from legal_system_rag.network.client_factory import (
     create_http_client,
@@ -29,6 +33,7 @@ from legal_system_rag.parser.legal_parser import (
 from legal_system_rag.rag.chain import (
     build_page_content,
     enrich_chunk,
+    create_structured_body,
 )
 from legal_system_rag.rag.prompts import EnrichmentOutput
 
@@ -62,53 +67,87 @@ logger.propagate = False
 
 
 # ============================================================
-# DOCUMENT ID
+# DOCUMENT ID: deterministic with this function!!! very important
 # ============================================================
+""" (.*?): ? (Non-Greedy / Faul), letter for letter check by (.*?)  and (?=  \n[A-Z_]+:  |  $  )
+(?=  \n[A-Z_]+:  |  $  )
+ ▲   └────┬────┘ │  ▲
+ │        │      │  └─ 3. Oder: Ende des Gesamtextes
+ │        │      └──── 2. Oder-Operator
+ │        └─────────── 1. Erste Stopp-Option (Header)
+ └──────────────────── Sonderfunktion: Lookahead (prüfen ohne mitzunehmen)
+"""
+
+def extract_original_text(page_content: str) -> str:
+    # Liest ab "ORIGINALTEXT:" bis zum nächsten Wort, das komplett GROSSGESCHRIEBEN ist und mit ":" endet
+    # oder bis zum Ende des Strings ($)
+    pattern = r"ORIGINALTEXT:\s*(.*?)(?=\n[A-Z_]+:|$)"
+    match = re.search(pattern, page_content, re.DOTALL)
+    
+    if match:
+        return match.group(1).strip()
+    
+    return page_content
+
+def extract_original_text(page_content: str) -> str:
+    # Liest ab "ORIGINALTEXT:" bis zum nächsten Wort, das komplett GROSSGESCHRIEBEN ist und mit ":" endet
+    # oder bis zum Ende des Strings ($)
+    pattern = r"ORIGINALTEXT:\s*(.*?)(?=\n[A-Z_]+:|$)"
+    match = re.search(pattern, page_content, re.DOTALL)
+    
+    if match:
+        return match.group(1).strip()
+    
+    return page_content
+    
+"""
+def create_chunk_id(
+    gesetz: str,
+    paragraph: str,
+    absatz: str | None,
+    nummer: str | None,
+) -> str:
+    return (
+        f"{gesetz}"
+        f"_{paragraph}"
+        f"_{absatz or 'none'}"
+        f"_{nummer or 'none'}"
+    )
+"""
+
 
 def create_document_id(doc: Document) -> str:
     """
     Create a stable ID for a document.
-
-    The ID consists of:
-    - source file
-    - paragraph
-    - subsection
-    - number
-    - SHA-256 hash of the original text
     """
-
     metadata = doc.metadata
 
-    source = str(metadata.get("source", "unknown"))
+    gesetz = str(metadata.get("gesetz", "unknown"))
     paragraph = str(metadata.get("paragraph", "unknown"))
     absatz = str(metadata.get("absatz", "unknown"))
     nummer = str(metadata.get("nummer", "none"))
 
-    original_text = str(
-        metadata.get(
-            "original_text",
-            doc.page_content,
-        )
-    )
+    # Extrahiere original_text direkt aus page_content
+    """
+    original_text = extract_original_text(doc.page_content)
 
     content_hash = hashlib.sha256(
-        original_text.encode("utf-8")
+    original_text.encode("utf-8")
     ).hexdigest()[:16]
-
+    """
+    
     raw_id = (
-        f"{source}_"
-        f"P{paragraph}_"
-        f"A{absatz}_"
-        f"N{nummer}_"
-        f"H{content_hash}"
+        f"{gesetz}"
+        f"_{paragraph}"
+        f"_{absatz}"
+        f"_{nummer}"
     )
 
     print("ID:", raw_id)
     print("Paragraph:", paragraph)
     print("Absatz:", absatz)
     print("Nummer:", nummer)
-    print("Hash:", content_hash)
-    print("Content:", original_text[:300])
+    #print("Content:", original_text[:600])
     print("-" * 80)
 
     return (
@@ -126,12 +165,8 @@ def create_document_id(doc: Document) -> str:
 # ============================================================
 
 def validate_unique_ids(ids: list[str]) -> None:
-    """
-    Check whether all document IDs are unique.
-    """
-
+    """ Check whether all document IDs are unique. """
     counts = Counter(ids)
-
     duplicate_ids = sorted(
         doc_id
         for doc_id, count in counts.items()
@@ -155,20 +190,25 @@ def process_and_create_doc(
     paragraph_title: str,
     absatz_number: str,
     nummer: str | None,
-    original_text: str,
+    subsection_text: str,
+    nummer_text: str | None,
     filename: str,
     structured_llm,
 ) -> Document:
-    """
-    Create a Document from a section of a law.
-    """
+    """Create a Document from a section of a law."""
+    structured_body = create_structured_body(subsection_text, nummer_text)
 
-    references = extract_references(original_text)
+    enrichment_text = textwrap.dedent(f"""\
+        § {paragraph_number} {paragraph_title}
+        
+        {structured_body}
+    """).strip()
 
-    enrichment = enrich_chunk(
-        original_text,
-        structured_llm,
-    )
+    t0 = time.time()
+    enrichment = enrich_chunk(enrichment_text, structured_llm)
+    print(f"  ⏱ Enrichment Dauer: {time.time() - t0:.2f} Sekunden")
+
+    references = extract_references(structured_body)
 
     page_content = build_page_content(
         gesetz=gesetz_name,
@@ -176,19 +216,46 @@ def process_and_create_doc(
         paragraph_title=paragraph_title,
         absatz=absatz_number,
         nummer=nummer,
+        subsection_text=subsection_text,
+        nummer_text=nummer_text,
         references=references,
         enrichment=enrichment,
-        original_text=original_text,
     )
+    original_text = extract_original_text(page_content)
+    print(" === > process_and_create_doc: ")
+    print("Content:", original_text[:600])
+    content_hash = hashlib.sha256(
+        original_text.encode("utf-8")
+    ).hexdigest()[:16]
+
 
     metadata = {
         "gesetz": gesetz_name,
+        "rechtsgebiet": "Mietrecht",
+        "thema": enrichment.topic,
+         
+        # Chunk hierarchy
         "paragraph": str(paragraph_number),
-        "absatz": str(absatz_number),
-        "nummer": str(nummer) if nummer else "none",
-        "source": filename,
-        "original_text": original_text,
+        "paragraph_titel": paragraph_title if paragraph_title else "-",
+        "absatz": str(absatz_number) if absatz_number else "-",
+        "nummer": str(nummer) if nummer else "-",
+       
+        
+        # Source
+        "source": "BGB.xml",
+        "file": filename,
+    # Incremental ingestion
+        "content_hash": content_hash,
+        #"enrichment_version": "v1",
     }
+
+# Dynamisches Überschreiben für den spezifischsten Chunk-Typ
+    if paragraph_number:
+        metadata["chunk_type"] = "paragraph"
+    if absatz_number:
+        metadata["chunk_type"] = "absatz"
+    if nummer:
+        metadata["chunk_type"] = "nummer"
 
     return Document(
         page_content=page_content,
@@ -204,16 +271,9 @@ def log_documents(
     documents: list[Document],
     ids: list[str],
 ) -> None:
-    """
-    Write all generated Document objects including IDs,
-    page_content and metadata to ingest.log.
-    """
-
+    """ Write all generated Document objects to ingest.log. """
     logger.info("=" * 100)
-    logger.info(
-        "ALL_DOCUMENTS: %d Dokumente",
-        len(documents),
-    )
+    logger.info("BATCH_DOCUMENTS: %d Dokumente", len(documents))
     logger.info("=" * 100)
 
     for index, (document, document_id) in enumerate(
@@ -222,25 +282,11 @@ def log_documents(
     ):
         logger.info("")
         logger.info("-" * 100)
-        logger.info(
-            "Dokument %d von %d",
-            index,
-            len(documents),
-        )
+        logger.info("Dokument %d von %d", index, len(documents))
         logger.info("ID: %s", document_id)
-
-        logger.info("METADATA:")
-        logger.info("%s", document.metadata)
-
-        logger.info("PAGE_CONTENT:")
-        logger.info("%s", document.page_content)
-
+        logger.info("METADATA: %s", document.metadata)
+        logger.info("PAGE_CONTENT: %s", document.page_content)
         logger.info("-" * 100)
-
-    logger.info(
-        "ALL_DOCUMENTS erfolgreich in %s geschrieben",
-        LOG_FILE,
-    )
 
 
 # ============================================================
@@ -248,33 +294,15 @@ def log_documents(
 # ============================================================
 
 def run_ingestion() -> None:
-    """
-    Read TXT files, create document chunks, enrich them
-    using the LLM and store them in Chroma.
-    """
+    """Read TXT files, create document chunks, enrich them and store in Chroma with batching."""
 
-    if not (
-        OPENAI_API_KEY
-        or os.environ.get("OPENAI_API_KEY")
-    ):
+    if not (OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY")):
         raise ValueError("OPENAI_API_KEY fehlt.")
 
-    DOCUMENTS_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    PERSIST_DIRECTORY.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    # ========================================================
-    # PROXY & HTTP CLIENT
-    # ========================================================
+    DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+    PERSIST_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
     proxy_url = get_proxy_url()
-
     sync_client = create_http_client(
         proxy_url=proxy_url,
         ignore_ssl=IGNORE_SSL,
@@ -287,218 +315,150 @@ def run_ingestion() -> None:
     )
 
     try:
-        # ====================================================
-        # EMBEDDINGS
-        # ====================================================
-
         embeddings = OpenAIEmbeddings(
             model=EMBEDDING_MODEL,
-            # api_key=OPENAI_API_KEY,
             http_client=sync_client,
         )
-
-        # ====================================================
-        # CHROMA
-        # ====================================================
 
         vector_store = Chroma(
             persist_directory=str(PERSIST_DIRECTORY),
             embedding_function=embeddings,
         )
 
-        # ====================================================
-        # LLM ENRICHMENT
-        # ====================================================
-
         llm_enrichment = ChatOpenAI(
             model=LLM_ENRICHMENT_MODEL,
-            # api_key=OPENAI_API_KEY,
             temperature=0.2,
             http_client=sync_client,
         )
 
-        structured_llm = (
-            llm_enrichment.with_structured_output(
-                EnrichmentOutput
-            )
-        )
+        structured_llm = llm_enrichment.with_structured_output(EnrichmentOutput)
 
         all_documents: list[Document] = []
+        # BATCH_SIZE = 20
+        total_processed_count = 0
+        batch_counter = 1
 
-        # ====================================================
-        # FIND SOURCE FILES
-        # ====================================================
-
-        txt_files = sorted(
-            DOCUMENTS_DIR.glob("*.txt")
-        )
+        txt_files = sorted(DOCUMENTS_DIR.glob("*.txt"))
 
         if not txt_files:
-            print(
-                f"⚠️ Keine .txt-Dateien in "
-                f"'{DOCUMENTS_DIR}' gefunden."
-            )
+            print(f"⚠️ Keine .txt-Dateien in '{DOCUMENTS_DIR}' gefunden.")
+            logger.warning("Keine Quelltexte im Verzeichnis %s vorhanden.", DOCUMENTS_DIR)
             return
 
-        # ====================================================
-        # PROCESS FILES
-        # ====================================================
+        count_before = vector_store._collection.count()
+        print(f"\n📊 Anzahl der Chunks in Chroma VOR dem Speichern: {count_before}")
 
         for filepath in txt_files:
             filename = filepath.name
-
-            print(
-                f"\n📄 Verarbeite Datei: {filename}"
-            )
-
-            full_text = filepath.read_text(
-                encoding="utf-8"
-            )
-
             gesetz_name = filepath.stem.upper()
 
-            paragraphs = split_paragraphs(
-                full_text
-            )
+            print(f"\n📄 Verarbeite Datei: {filename}")
+            logger.info("Verarbeite Datei: %s", filename)
+
+            full_text = filepath.read_text(encoding="utf-8")
+            paragraphs = split_paragraphs(full_text)
 
             for para in paragraphs:
                 paragraph_number = para["paragraph"]
                 paragraph_title = para["title"]
                 paragraph_content = para["content"]
 
-                print(
-                    f"  ➡ Analysiere "
-                    f"§{paragraph_number} "
-                    f"{paragraph_title}"
-                )
+                print(f"  ➡ Analysiere §{paragraph_number} {paragraph_title}")
 
-                absaetze = split_absaetze(
-                    paragraph_content
-                )
+                absaetze = split_absaetze(paragraph_content)
 
                 for absatz_item in absaetze:
                     absatz_number = absatz_item["absatz"]
                     absatz_content = absatz_item["content"]
 
-                    nummern = split_nummern(
-                        absatz_content
-                    )
+                    nummern_list = split_nummern(absatz_content)
 
-                    # ========================================
-                    # ABSATZ WITHOUT NUMBER
-                    # ========================================
-
-                    if not nummern:
+                    # Fall 1: Keine Unter-Nummerierung
+                    if not nummern_list:
                         doc = process_and_create_doc(
                             gesetz_name=gesetz_name,
                             paragraph_number=paragraph_number,
                             paragraph_title=paragraph_title,
                             absatz_number=absatz_number,
                             nummer=None,
-                            original_text=absatz_content,
+                            subsection_text=absatz_content,
+                            nummer_text=None,
                             filename=filename,
                             structured_llm=structured_llm,
                         )
-
                         all_documents.append(doc)
+                        total_processed_count += 1
                         continue
 
-                    # ========================================
-                    # INTRODUCTION TEXT
-                    # ========================================
-
-                    intro_text = nummern[0].get(
-                        "intro_isolated",
-                        "",
-                    )
-
-                    if intro_text and len(intro_text) > 10:
-                        doc_intro = process_and_create_doc(
-                            gesetz_name=gesetz_name,
-                            paragraph_number=paragraph_number,
-                            paragraph_title=paragraph_title,
-                            absatz_number=absatz_number,
-                            nummer="Einleitung",
-                            original_text=intro_text,
-                            filename=filename,
-                            structured_llm=structured_llm,
-                        )
-
-                        all_documents.append(doc_intro)
-
-                    # ========================================
-                    # NUMBERED ITEMS
-                    # ========================================
-
-                    for nummer_item in nummern:
+                    # Fall 2: Mit Unter-Nummerierung
+                    for nummer_item in nummern_list:
                         doc_nummer = process_and_create_doc(
                             gesetz_name=gesetz_name,
                             paragraph_number=paragraph_number,
                             paragraph_title=paragraph_title,
                             absatz_number=absatz_number,
                             nummer=nummer_item["nummer"],
-                            original_text=nummer_item["content"],
+                            subsection_text=nummer_item["subsection_text"],
+                            nummer_text=nummer_item["content"],
                             filename=filename,
                             structured_llm=structured_llm,
                         )
-
                         all_documents.append(doc_nummer)
+                        total_processed_count += 1
+
+                # PRÜFUNG UNTER DEM PARAGRAPHEN
+                if len(all_documents) >= BATCH_SIZE:
+                    batch_ids = [create_document_id(doc) for doc in all_documents]
+                    validate_unique_ids(batch_ids)
+                    log_documents(documents=all_documents, ids=batch_ids)
+
+                    print(f"\n💾 Speichere Batch {batch_counter} mit {len(all_documents)} Chunks...")
+                    vector_store.add_documents(
+                        documents=all_documents,
+                        ids=batch_ids,
+                    )
+                    print(f"📦 Batch {batch_counter} erfolgreich gespeichert & RAM geleert.")
+                    
+                    # Liste zurücksetzen = RAM freigeben
+                    all_documents.clear()
+                    batch_counter += 1
 
         # ====================================================
-        # VALIDATE DOCUMENTS
+        # RESTLICHE DOKUMENTE SPEICHERN (Falls len < 20 am Ende)
         # ====================================================
+        if all_documents:
+            batch_ids = [create_document_id(doc) for doc in all_documents]
+            validate_unique_ids(batch_ids)
+            log_documents(documents=all_documents, ids=batch_ids)
 
-        if not all_documents:
-            print(
-                "⚠️ Es wurden keine "
-                "Dokument-Chunks erzeugt."
+            print(f"\n💾 Speichere finalen Batch {batch_counter} mit {len(all_documents)} Chunks...")
+            vector_store.add_documents(
+                documents=all_documents,
+                ids=batch_ids,
             )
+            print(f"📦 Letzter Batch {batch_counter} gespeichert & RAM geleert.")
+            all_documents.clear()
+
+        if total_processed_count == 0:
+            print("⚠️ Es wurden keine Dokument-Chunks erzeugt.")
+            logger.info("Keine Dokument-Chunks generiert.")
             return
 
-        ids = [
-            create_document_id(doc)
-            for doc in all_documents
-        ]
+        count_after = vector_store._collection.count()
+        print(f"\n📊 Anzahl der Chunks in Chroma NACH dem Speichern: {count_after}")
+        print(f"➕ Differenz: +{count_after - count_before} Chunks")
 
-        validate_unique_ids(ids)
+        logger.info("Ingestion erfolgreich abgeschlossen.")
+        print("✅ Ingestion erfolgreich abgeschlossen.")
 
-        # ====================================================
-        # LOG DOCUMENTS
-        # ====================================================
-
-        logger.info(
-            "Speichere %d Dokument-Chunks in Chroma",
-            len(all_documents),
-        )
-
-        log_documents(
-            documents=all_documents,
-            ids=ids,
-        )
-
-        # ====================================================
-        # STORE DOCUMENTS
-        # ====================================================
-
-        print(
-            f"\n💾 Speichere {len(all_documents)} "
-            "Dokument-Chunks in Chroma..."
-        )
-
-        vector_store.add_documents(
-            documents=all_documents,
-            ids=ids,
-        )
-
-        print(
-            "✅ Ingestion erfolgreich "
-            "abgeschlossen."
-        )
+    except Exception as e:
+        logger.exception("Schwerwiegender Fehler während der Ingestion:")
+        print(f"❌ Fehler während der Ingestion: {e}")
+        raise
 
     finally:
         sync_client.close()
 
-        # The AsyncClient is not closed synchronously here.
-        # In a fully asynchronous pipeline:
-        #
-        # await async_client.aclose()
+
+if __name__ == "__main__":
+    run_ingestion()

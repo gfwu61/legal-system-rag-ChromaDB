@@ -39,6 +39,10 @@ st.set_page_config(
 
 HELP_QUESTIONS = {
     "Kündigung": [
+        "wie lang ist die Kündigungsfrist für den Mieter?",
+        "wie lang ist die Kündigungsfrist für den Vermieter?",
+         "wie ist die Kündigungsfrist für den Vermieter in §573 und 573c geregelt?",       
+        "wie schnell kann ich aus meiner Wohnung als Mieter aus?",
         "Unter welchen Voraussetzungen kann ein Vermieter meinem Mietverhältnis ordentlich kündigen?",
         "Darf mein Vermieter wegen Eigenbedarfs kündigen?",
         "Welche Kündigungsfrist muss ein Vermieter bei einer normalen Kündigung einhalten?",
