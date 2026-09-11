@@ -1,93 +1,544 @@
-
 # Legal RAG System
 
-A professional Retrieval-Augmented Generation (RAG) system for answering questions about German tenancy law (Mietrecht).
+An end-to-end Retrieval-Augmented Generation (RAG) system for German tenancy law (*Mietrecht*), implemented as a modular Python application.
 
-The system combines:
+The project demonstrates a production-oriented RAG architecture with:
 
-- Python
-- LangChain
-- OpenAI LLMs
-- OpenAI Embeddings
-- ChromaDB
-- Streamlit
-- HTTPX
-- pytest
-- Corporate proxy / PX support
+- Structured legal document parsing and enrichment
+- Persistent ChromaDB vector storage
+- Dense vector retrieval
+- Sparse BM25 retrieval
+- Hybrid retrieval
+- Cross-encoder reranking
+- LLM-based query routing
+- Agentic retrieval with relevance evaluation
+- Automatic query rewriting for self-correction
+- Grounded answer generation
+- Source-document transparency
+- Streamlit chat UI
+- Pytest unit, integration, and end-to-end test structure
+- Configurable corporate proxy / PX networking
+- Python packaging and command-line entry points
 
-The application retrieves relevant legal documents from a persistent ChromaDB vector store and uses large language models to generate answers grounded in the retrieved legal content.
+The system is designed as a technical demonstration and learning project rather than as legal advice or a production legal service.
 
 ---
 
-# 1. Project Overview
+## 1. Project Overview
 
-An end-to-end RAG pipeline demonstrating professional AI engineering practices using a curated set of German tenancy law texts
+The application answers questions about a curated collection of German tenancy-law documents.
 
-The system follows this general architecture:
+The central design principle is separation of concerns:
 
 ```text
-                    ┌─────────────────────┐
-                    │      User Query     │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │   Query Extraction  │
-                    │      / Enrichment   │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │   Vector Retrieval  │
-                    │      ChromaDB       │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │   Retrieved Legal   │
-                    │     Documents       │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │     Answer LLM      │
-                    │   Grounded Answer   │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Streamlit UI        │
-                    │ Answer + Sources    │
-                    └─────────────────────┘
-````
-
-The application is designed so that document ingestion, parsing, retrieval, generation, networking, and user interface are separated into independent modules.
+                         User Question
+                              │
+                              ▼
+                    ┌───────────────────┐
+                    │   RAG Application  │
+                    │    Streamlit UI    │
+                    └─────────┬─────────┘
+                              │
+                ┌─────────────┴─────────────┐
+                │                           │
+                ▼                           ▼
+        Standard RAG Mode          Agentic RAG Mode
+                │                           │
+                │                    ┌──────▼──────┐
+                │                    │ LLM Router  │
+                │                    └──────┬──────┘
+                │                           │
+                │                    Search Strategy
+                │                           │
+                └─────────────┬─────────────┘
+                              ▼
+                    Hybrid Retrieval
+                   ┌──────────┴──────────┐
+                   │                     │
+                   ▼                     ▼
+              Dense Search           BM25 Search
+               ChromaDB             Sparse Search
+                   │                     │
+                   └──────────┬──────────┘
+                              ▼
+                       Candidate Chunks
+                              │
+                              ▼
+                       Cross-Encoder
+                         Reranking
+                              │
+                              ▼
+                    Top-K Relevant Chunks
+                              │
+                    ┌─────────┴─────────┐
+                    │                   │
+                    ▼                   ▼
+             Standard Mode       Agentic Mode
+                    │             Relevance Evaluation
+                    │                   │
+                    │              ┌────┴────┐
+                    │              │         │
+                    │             Yes        No
+                    │              │         │
+                    │              │    Query Rewrite
+                    │              │         │
+                    └──────────────┴─────────┘
+                              │
+                              ▼
+                         Answer LLM
+                              │
+                              ▼
+                    Grounded Legal Answer
+                              │
+                              ▼
+                     Sources + Metadata
+```
 
 ---
 
 # 2. Main Features
 
-## RAG
+## 2.1 Two RAG Execution Modes
 
-The system uses Retrieval-Augmented Generation to combine:
+The Streamlit application provides two retrieval modes.
 
-1. User question
-2. Query extraction
-3. Vector search
-4. Legal document retrieval
-5. LLM-based answer generation
+### Mode 1 — Standard RAG
 
-The generated answer is based on retrieved legal documents rather than relying exclusively on the LLM's internal knowledge.
+A conventional linear RAG pipeline:
 
-## Legal Document Parsing
+```text
+Question
+   │
+   ▼
+Query Processing
+   │
+   ▼
+Hybrid Retrieval
+   │
+   ├── Dense / ChromaDB
+   └── Sparse / BM25
+   │
+   ▼
+Reranking
+   │
+   ▼
+Top-K Documents
+   │
+   ▼
+Answer LLM
+   │
+   ▼
+Answer
+```
 
-Legal documents are parsed into structured components such as:
+This mode is useful as a strong baseline and makes it possible to compare a conventional RAG pipeline with the agentic approach.
 
-* Paragraph
-* Absatz
-* Nummer
-* References
-* Original legal text
+### Mode 2 — Agentic / Self-Corrective RAG
+
+The agentic mode adds an LLM-based routing and evaluation loop:
+
+```text
+User Question
+      │
+      ▼
+   LLM Router
+      │
+      ├── specific_norm
+      │
+      └── concept_search
+      │
+      ▼
+Search Query + Filters
+      │
+      ▼
+Hybrid Retrieval
+      │
+      ▼
+Candidate Documents
+      │
+      ▼
+Cross-Encoder Reranking
+      │
+      ▼
+Top-K Documents
+      │
+      ▼
+LLM Relevance Evaluation
+      │
+      ├── Relevant ───────────────┐
+      │                          │
+      └── Not relevant           │
+              │                  │
+              ▼                  │
+        Query Rewriting          │
+              │                  │
+              └──► Retry ────────┘
+                                 │
+                                 ▼
+                         Final Answer LLM
+```
+
+The current implementation performs up to two retrieval attempts.
+
+---
+
+# 3. Agentic Retrieval
+
+The agentic retrieval loop is implemented in:
+
+```text
+src/legal_system_rag/rag/agent.py
+```
+
+The loop performs the following steps.
+
+### Step 1 — LLM Routing
+
+The router classifies the user's question into one of two retrieval strategies:
+
+```text
+specific_norm
+concept_search
+```
+
+`RouterDecision` is a Pydantic structured-output model.
+
+For example:
+
+```text
+Question:
+"Zeige mir den Wortlaut von § 573 BGB."
+
+Route:
+specific_norm
+
+Paragraph filter:
+["573"]
+```
+
+Whereas a question such as:
+
+```text
+"Was muss ich bei einer Eigenbedarfskündigung beachten?"
+```
+
+is treated as a conceptual legal question rather than a request for the exact wording of one paragraph.
+
+This distinction allows the retriever to use paragraph-level filtering when appropriate.
+
+---
+
+## 3.1 Router Output
+
+The router produces:
+
+```python
+RouterDecision(
+    route="specific_norm",
+    search_query="...",
+    paragraph_filters=["573"],
+)
+```
+
+The schema is defined in:
+
+```text
+src/legal_system_rag/rag/router.py
+```
+
+The router uses LLM structured output to produce predictable, typed decisions instead of parsing free-form LLM text.
+
+---
+
+# 4. Hybrid Retrieval
+
+The retrieval layer is implemented primarily in:
+
+```text
+src/legal_system_rag/rag/retrieval.py
+src/legal_system_rag/rag/chain.py
+```
+
+The system combines two complementary retrieval methods.
+
+## Dense Retrieval
+
+Semantic search is performed with:
+
+```text
+OpenAI text-embedding-3-small
+        │
+        ▼
+     ChromaDB
+```
+
+Dense retrieval is useful when the user's wording differs from the wording of the legal text.
+
+## Sparse Retrieval
+
+BM25 provides lexical retrieval:
+
+```text
+User Query
+    │
+    ▼
+ BM25 Index
+    │
+    ▼
+Keyword / term matching
+```
+
+BM25 is particularly useful for legal terminology, paragraph identifiers, names, and exact words appearing in the source documents.
+
+---
+
+## 4.1 Hybrid Retrieval Strategy
+
+The two retrieval approaches are combined:
+
+```text
+                 Query
+                   │
+          ┌────────┴────────┐
+          ▼                 ▼
+     ChromaDB              BM25
+    Dense Search       Sparse Search
+          │                 │
+          └────────┬────────┘
+                   ▼
+             Hybrid Results
+```
+
+The implementation supports both the standard LangChain ensemble approach and a score-aware hybrid approach.
+
+The score-aware implementation can normalize dense and BM25 scores and combine them before reranking.
+
+---
+
+# 5. Cross-Encoder Reranking
+
+The reranking implementation is located in:
+
+```text
+src/legal_system_rag/rag/reranker.py
+```
+
+The project uses:
+
+```text
+BAAI/bge-reranker-v2-m3
+```
+
+through the Hugging Face inference service.
+
+The purpose of reranking is to improve the ordering of candidate documents after the initial retrieval stage.
+
+```text
+Hybrid Retrieval
+      │
+      ▼
+Candidate Documents
+      │
+      ▼
+Cross-Encoder
+      │
+      ▼
+Relevance Scores
+      │
+      ▼
+Sorted Documents
+      │
+      ▼
+Top-K Selection
+```
+
+The cross-encoder evaluates the query and document together rather than embedding them independently.
+
+This allows a second-stage relevance assessment after the faster dense/sparse retrieval stage.
+
+---
+
+# 6. Self-Corrective Retrieval
+
+The agentic pipeline adds an additional evaluation step after retrieval and reranking.
+
+The implementation is in:
+
+```text
+src/legal_system_rag/rag/evaluators.py
+```
+
+The evaluation process asks an LLM whether the retrieved documents are sufficiently relevant to the original question.
+
+```text
+Retrieved Top-K
+       │
+       ▼
+Relevance Evaluator
+       │
+       ├── yes
+       │    │
+       │    ▼
+       │  Continue
+       │
+       └── no
+            │
+            ▼
+      Query Rewriting
+            │
+            ▼
+       New Search
+```
+
+The query-rewriting component generates an improved search query for the next retrieval attempt.
+
+This is a form of self-corrective RAG:
+
+```text
+Retrieve
+   ↓
+Evaluate
+   ↓
+Rewrite
+   ↓
+Retrieve again
+```
+
+The current maximum number of attempts is:
+
+```python
+max_retries=2
+```
+
+---
+
+# 7. Final Answer Generation
+
+The end-to-end agentic pipeline is implemented in:
+
+```text
+src/legal_system_rag/rag/agentic_rag.py
+```
+
+After retrieval has selected the relevant chunks, the answer LLM receives:
+
+```text
+Original Question
+        +
+Retrieved Legal Context
+        │
+        ▼
+     Answer LLM
+        │
+        ▼
+Grounded Legal Answer
+```
+
+The prompt explicitly prioritizes the original legal text.
+
+Additional enriched information such as:
+
+- topic
+- plain-language explanation
+- extracted references
+
+is used as supporting context.
+
+The final answer is generated in German.
+
+---
+
+# 8. Legal Document Ingestion
+
+The ingestion entry point is:
+
+```text
+src/legal_system_rag/ingest_documents.py
+```
+
+The main ingestion implementation is:
+
+```text
+src/legal_system_rag/pipelines/ingest.py
+```
+
+The pipeline is:
+
+```text
+Legal TXT Documents
+        │
+        ▼
+Text Normalization
+        │
+        ▼
+Paragraph Detection
+        │
+        ▼
+Absatz Detection
+        │
+        ▼
+Nummer Detection
+        │
+        ▼
+Reference Extraction
+        │
+        ▼
+LLM Enrichment
+        │
+        ▼
+Structured Document
+        │
+        ▼
+OpenAI Embedding
+        │
+        ▼
+ChromaDB
+```
+
+Documents are inserted in batches.
+
+The current configuration uses:
+
+```yaml
+chunking:
+  size: 1000
+  overlap: 200
+  batch_size: 20
+```
+
+The legal parser, however, primarily respects the legal hierarchy rather than treating the source text as arbitrary prose.
+
+---
+
+# 9. Legal-Aware Chunking
+
+The parser is implemented in:
+
+```text
+src/legal_system_rag/parser/legal_parser.py
+```
+
+Important functions include:
+
+```python
+normalize_text()
+split_paragraphs()
+split_absaetze()
+split_nummern()
+extract_references()
+```
+
+The parser recognizes the hierarchical structure of German legal documents.
+
+```text
+Gesetz
+  │
+  └── Paragraph (§)
+        │
+        └── Absatz
+              │
+              └── Nummer
+```
 
 For example:
 
@@ -95,12 +546,35 @@ For example:
 § 573c Fristen der ordentlichen Kündigung
 
 (1) Die Kündigung ist spätestens am dritten Werktag ...
+
 (2) Bei Wohnraum, der nur zum vorübergehenden Gebrauch ...
+
 (3) Bei Wohnraum nach § 549 Abs. 2 Nr. 2 ...
-(4) Eine zum Nachteil des Mieters ...
 ```
 
-The parser correctly distinguishes legal numbers from references and ordinary numbers.
+is represented using structured metadata such as:
+
+```text
+paragraph = 573c
+absatz    = 1
+nummer    = -
+```
+
+or:
+
+```text
+paragraph = 573
+absatz    = 3
+nummer    = 2
+```
+
+depending on the source structure.
+
+---
+
+# 10. Legal Number Detection
+
+A key parser requirement is distinguishing legal list numbers from ordinary numbers.
 
 For example:
 
@@ -108,17 +582,304 @@ For example:
 § 549 Abs. 2 Nr. 2
 ```
 
-contains legal references, while:
+contains legal references.
+
+However:
 
 ```text
 am 15. eines Monats
 ```
 
-contains a date-related number that must not incorrectly become a legal `Nummer`.
+contains a date-related number and must not accidentally be interpreted as:
+
+```text
+Nummer = 15
+```
+
+The parser therefore recognizes numbered legal items only when they occur as standalone numbered list elements.
+
+This prevents incorrect chunk boundaries.
 
 ---
 
-# 3. Project Structure
+# 11. Document Enrichment
+
+During ingestion, each legal chunk is enriched by an LLM.
+
+The enrichment information includes fields such as:
+
+```text
+THEMA
+KEYWORDS
+TYPISCHE NUTZERFRAGEN
+KLARTEXT
+```
+
+The original legal text remains explicitly available.
+
+Conceptually:
+
+```text
+Original Legal Text
+        │
+        ▼
+LLM Enrichment
+        │
+        ├── Topic
+        ├── Keywords
+        ├── Typical user questions
+        └── Plain-language explanation
+        │
+        ▼
+Structured RAG Document
+```
+
+The goal is to improve retrieval and interpretation without replacing the original source text.
+
+---
+
+# 12. Document Metadata
+
+Each Chroma document contains structured metadata.
+
+Typical fields include:
+
+```text
+gesetz
+rechtsgebiet
+thema
+paragraph
+paragraph_titel
+absatz
+nummer
+source
+file
+content_hash
+chunk_type
+```
+
+Example:
+
+```python
+{
+    "gesetz": "BGB",
+    "rechtsgebiet": "Mietrecht",
+    "thema": "...",
+    "paragraph": "573c",
+    "paragraph_titel": "Fristen der ordentlichen Kündigung",
+    "absatz": "1",
+    "nummer": "-",
+    "source": "BGB.xml",
+    "file": "BGB.txt",
+    "content_hash": "...",
+    "chunk_type": "absatz",
+}
+```
+
+This metadata enables targeted filtering during retrieval.
+
+---
+
+# 13. Vector Database
+
+The current vector database is:
+
+```text
+ChromaDB
+```
+
+with a persistent local directory:
+
+```text
+chroma_legal_rag/
+```
+
+The application loads the database through:
+
+```python
+Chroma(
+    persist_directory=str(PERSIST_DIRECTORY),
+    embedding_function=embeddings,
+)
+```
+
+The configuration also contains the conceptual names for a future Pinecone setup:
+
+```yaml
+vector_DB:
+  vector_store: 1
+  legal_index: German_Law
+  namespace_Mietrecht: Mietrecht
+  namespace_Steuerrecht: Steuerrecht
+```
+
+The current implementation uses:
+
+```text
+vector_store = 1
+```
+
+which means ChromaDB.
+
+---
+
+# 14. LLM Architecture
+
+The project separates LLM responsibilities.
+
+The current configuration is:
+
+```yaml
+llm:
+  llm_enrichment: gpt-5.4-nano
+  llm_query: gpt-5.4-nano
+  llm_answer: gpt-5.4-mini
+```
+
+## Enrichment LLM
+
+Used during document ingestion to create structured enrichment information.
+
+## Query LLM
+
+Used for:
+
+- query processing
+- routing
+- relevance evaluation
+- query rewriting
+
+## Answer LLM
+
+Used for final answer synthesis.
+
+This separation allows different models and temperatures to be used for different tasks.
+
+---
+
+# 15. Network and Corporate Proxy Support
+
+Network handling is centralized in:
+
+```text
+src/legal_system_rag/network/client_factory.py
+src/legal_system_rag/config/settings.py
+```
+
+The system supports:
+
+- HTTPX
+- HTTP/HTTPS proxy configuration
+- PX proxy
+- configurable timeouts
+- configurable retries
+- custom CA certificates
+- SSL verification configuration
+
+Example configuration:
+
+```yaml
+network:
+  px_host: "127.0.0.1"
+  px_port: 3128
+  timeout: 60.0
+  retries: 3
+  ignore_ssl: False
+```
+
+The application can also use:
+
+```text
+COMPANY_PROXY_URL
+```
+
+from the environment.
+
+---
+
+# 16. Certificate Handling
+
+The configuration module can build a combined CA bundle from:
+
+```text
+certifi
++
+company proxy CA
++
+company root CA
+```
+
+The generated bundle is:
+
+```text
+certs/Company_Internet_Kombi.crt
+```
+
+If the required company certificates are unavailable, the implementation falls back to the standard `certifi` CA bundle and adjusts SSL behavior according to the configured environment.
+
+This functionality is primarily intended for corporate development environments.
+
+---
+
+# 17. Streamlit Application
+
+The Streamlit entry point is:
+
+```text
+src/legal_system_rag/app.py
+```
+
+The application provides:
+
+- Chat interface
+- Example questions
+- Pipeline selection
+- Retriever selection
+- Conversation history
+- Retrieved source display
+- Error handling
+- Cached resources
+
+The UI exposes the retrieval architecture rather than hiding it completely.
+
+This makes the application useful for demonstrating and debugging the RAG pipeline.
+
+---
+
+# 18. Application Resource Lifecycle
+
+The application caches expensive resources using Streamlit resource caching.
+
+The initialization flow is approximately:
+
+```text
+Streamlit
+    │
+    ▼
+get_proxy_url()
+    │
+    ▼
+HTTPX Client
+    │
+    ├── OpenAI Embeddings
+    ├── Query LLM
+    ├── Answer LLM
+    └── ChromaDB
+             │
+             ▼
+       Global BM25 Index
+             │
+             ▼
+         RAG Chain
+```
+
+The global BM25 index is created once for the loaded Chroma collection and reused during the application session.
+
+---
+
+# 19. Project Structure
+
+The relevant source structure is:
 
 ```text
 legal-system-rag/
@@ -127,17 +888,19 @@ legal-system-rag/
 │   ├── __init__.py
 │   │
 │   └── legal_system_rag/
-│       │
 │       ├── __init__.py
 │       ├── app.py
+│       ├── ingest_documents.py
 │       │
 │       ├── config/
 │       │   ├── __init__.py
-│       │   └── settings.py
+│       │   ├── settings.py
+│       │   └── rag_config.yaml
 │       │
 │       ├── network/
 │       │   ├── __init__.py
-│       │   └── client_factory.py
+│       │   ├── client_factory.py
+│       │   └── ReadMe_Certificate.md
 │       │
 │       ├── parser/
 │       │   ├── __init__.py
@@ -149,18 +912,30 @@ legal-system-rag/
 │       │
 │       └── rag/
 │           ├── __init__.py
+│           ├── agent.py
+│           ├── agentic_rag.py
 │           ├── chain.py
-│           └── prompts.py
+│           ├── evaluators.py
+│           ├── prompts.py
+│           ├── reranker.py
+│           ├── retrieval.py
+│           ├── router.py
+│           └── utils.py
 │
 ├── tests/
+│   ├── conftest.py
 │   ├── unit/
-│   │   └── test_legal_parser.py
+│   │   ├── test_EmptyRetriever.py
+│   │   ├── test_legal_parser.py
+│   │   └── test_router.py
 │   │
-│   └── integration/
-│       └── test_network.py
-│
-├── config/
-│   └── rag_config.yaml
+│   ├── integration/
+│   │   └── test_network.py
+│   │
+│   ├── e2e/
+│   ├── compare_chroma.py
+│   ├── debug_chroma.py
+│   └── inspect_chroma.py
 │
 ├── data/
 │   └── dokumente_mietrecht/
@@ -169,1301 +944,1073 @@ legal-system-rag/
 │
 ├── certs/
 │
-├── .env
+├── activate.ps1
+├── createDB.ps1
+├── start.ps1
 ├── .env.example
 ├── .gitignore
 ├── pyproject.toml
+├── Quick_Start.md
 ├── README.md
 └── runtime.txt
 ```
 
----
-
-# 4. Application: `app.py`
-
-`app.py` is the Streamlit entry point of the application.
-
-Its responsibility is to initialize the RAG system and provide the interactive user interface.
-
-## Application Pipeline
+Generated directories such as:
 
 ```text
-Streamlit starts
-       │
-       ▼
-Configure Streamlit
-       │
-       ▼
-Determine proxy configuration
-       │
-       ▼
-Create HTTPX client
-       │
-       ▼
-Initialize OpenAI embeddings
-       │
-       ▼
-Initialize query LLM
-       │
-       ▼
-Initialize answer LLM
-       │
-       ▼
-Open persistent ChromaDB
-       │
-       ▼
-Build RAG chain
-       │
-       ▼
-Display chat history
-       │
-       ▼
-Receive user question
-       │
-       ▼
-Invoke RAG chain
-       │
-       ├──────────────► Query processing
-       │
-       ├──────────────► Vector retrieval
-       │
-       └──────────────► Answer generation
-       │
-       ▼
-Display answer
-       │
-       ▼
-Display retrieved sources
-       │
-       ▼
-Store conversation in session state
+.venv/
+__pycache__/
+.ipynb_checkpoints/
 ```
+
+are development artifacts and are not part of the conceptual architecture.
 
 ---
 
-# 5. `app.py` Function Descriptions
+# 20. Important Modules
 
-## `load_http_client()`
-
-```text
-Function description:
-Creates and caches a synchronous HTTPX client.
-
-Pipeline:
-
-get_proxy_url()
-        ↓
-create_http_client()
-        ↓
-HTTPX client
-        ↓
-Streamlit resource cache
-```
-
-The client is reused between Streamlit reruns.
-
----
-
-## `load_resources()`
-
-```text
-Function description:
-Initializes the OpenAI embedding model, query LLM,
-answer LLM and persistent ChromaDB vector store.
-
-Pipeline:
-
-HTTPX client
-     │
-     ├──► OpenAIEmbeddings
-     │
-     ├──► Query ChatOpenAI
-     │
-     ├──► Answer ChatOpenAI
-     │
-     └──► ChromaDB
-```
-
-The function also verifies that the configured ChromaDB directory exists and is not empty.
+| Module | Responsibility |
+|---|---|
+| `app.py` | Streamlit UI and application orchestration |
+| `ingest_documents.py` | CLI entry point for ingestion |
+| `pipelines/ingest.py` | Document ingestion pipeline |
+| `parser/legal_parser.py` | Legal-aware document parsing |
+| `rag/router.py` | LLM-based retrieval routing |
+| `rag/retrieval.py` | Routed dense + sparse retrieval |
+| `rag/reranker.py` | Cross-encoder reranking |
+| `rag/evaluators.py` | Relevance evaluation and query rewriting |
+| `rag/agent.py` | Agentic retrieval loop |
+| `rag/agentic_rag.py` | End-to-end agentic RAG pipeline |
+| `rag/chain.py` | Standard RAG chain and retrieval utilities |
+| `rag/prompts.py` | Query and answer prompts |
+| `rag/utils.py` | Retrieval and document utilities |
+| `config/settings.py` | Central configuration and environment handling |
+| `network/client_factory.py` | HTTPX / proxy / SSL handling |
 
 ---
 
-## `load_rag_chain()`
+# 21. Configuration
+
+The main RAG configuration is:
 
 ```text
-Function description:
-Builds and caches the complete RAG chain.
-
-Pipeline:
-
-Query LLM
-     │
-Answer LLM
-     │
-Vector Store
-     │
-     ▼
-build_rag_chain()
-     │
-     ▼
-RAG Chain
+src/legal_system_rag/config/rag_config.yaml
 ```
 
----
+Current relevant settings:
 
-## `render_sources()`
+```yaml
+llm:
+  llm_enrichment: gpt-5.4-nano
+  llm_query: gpt-5.4-nano
+  llm_answer: gpt-5.4-mini
+
+embedding:
+  embedding_model: text-embedding-3-small
+
+vector_DB:
+  vector_store: 1
+  legal_index: German_Law
+  namespace_Mietrecht: Mietrecht
+  namespace_Steuerrecht: Steuerrecht
+
+retriever:
+  retriever_mode: 2
+  weight_hybrid: 0.4
+  top_k: 8
+  top_bm25_k: 30
+
+chunking:
+  size: 1000
+  overlap: 200
+  batch_size: 20
+```
+
+The current retriever configuration means:
 
 ```text
-Function description:
-Displays the legal documents retrieved by the RAG system.
-
-Pipeline:
-
-Retrieved Documents
-        │
-        ▼
-Read metadata
-        │
-        ├──► Paragraph
-        └──► Source file
-        │
-        ▼
-Display document content
+retriever_mode = 2
+weight_hybrid = 0.4
+top_k = 8
+top_bm25_k = 30
 ```
 
-The sources are displayed in a Streamlit expander.
-
----
-
-## `render_chat_history()`
-
-```text
-Function description:
-Displays the previous conversation stored in Streamlit session state.
-
-Pipeline:
-
-st.session_state.messages
-        │
-        ▼
-Iterate messages
-        │
-        ├──► User message
-        │
-        └──► Assistant message
-                    │
-                    └──► Retrieved sources
-```
-
----
-
-## `initialize_resources()`
-
-```text
-Function description:
-Initializes all resources required by the RAG application.
-
-Pipeline:
-
-get_proxy_url()
-       │
-       ▼
-load_http_client()
-       │
-       ▼
-load_resources()
-       │
-       ▼
-load_rag_chain()
-       │
-       ▼
-Ready-to-use RAG chain
-```
-
----
-
-## `main()`
-
-```text
-Function description:
-Runs the complete Streamlit application.
-
-Pipeline:
-
-Start application
-       │
-       ▼
-Initialize session state
-       │
-       ▼
-Initialize RAG resources
-       │
-       ▼
-Render chat history
-       │
-       ▼
-Wait for user input
-       │
-       ▼
-User question
-       │
-       ▼
-rag_chain.invoke()
-       │
-       ▼
-Generated answer
-       │
-       ├──► Display answer
-       │
-       └──► Display sources
-       │
-       ▼
-Store conversation
-```
-
----
-
-# 6. RAG Pipeline
-
-The core RAG pipeline is implemented in:
-
-```text
-src/legal_system_rag/rag/chain.py
-```
-
-The pipeline conceptually consists of the following stages:
-
-```text
-User Question
-      │
-      ▼
-Query Extraction
-      │
-      ├── search query
-      └── paragraph filter
-      │
-      ▼
-Retriever
-      │
-      ▼
-ChromaDB
-      │
-      ▼
-Relevant Legal Documents
-      │
-      ▼
-Answer Prompt
-      │
-      ▼
-Answer LLM
-      │
-      ▼
-Final Answer
-```
-
-The system returns both:
+The reranker weight is derived as:
 
 ```python
-{
-    "answer": "...",
-    "docs": [...]
-}
+WEIGHT_RERANKER = 1.0 - WEIGHT_HYBRID
 ```
 
-The `answer` contains the generated response.
-
-The `docs` contain the retrieved source documents used by the application.
-
----
-
-# 7. Document Ingestion Pipeline
-
-Legal source documents are processed before they become available to the RAG application.
-
-The ingestion pipeline is implemented in:
+so the current configuration corresponds to:
 
 ```text
-src/legal_system_rag/pipelines/ingest.py
-```
-
-The general pipeline is:
-
-```text
-Legal TXT documents
-        │
-        ▼
-Text loading
-        │
-        ▼
-Legal parsing
-        │
-        ▼
-Paragraph extraction
-        │
-        ▼
-Number extraction
-        │
-        ▼
-Reference extraction
-        │
-        ▼
-Metadata generation
-        │
-        ▼
-Text enrichment
-        │
-        ▼
-Chunking
-        │
-        ▼
-OpenAI Embeddings
-        │
-        ▼
-ChromaDB
+Hybrid score:    0.4
+Reranker score:  0.6
 ```
 
 ---
 
-# 8. Legal Parser
+# 22. Environment Variables
 
-The parser is implemented in:
+Sensitive values are read from environment variables or Streamlit secrets.
 
-```text
-src/legal_system_rag/parser/legal_parser.py
-```
-
-The parser provides functions such as:
-
-```python
-normalize_text()
-split_paragraphs()
-split_absaetze()
-split_nummern()
-extract_references()
-```
-
-The parser separates the structure of German legal text.
-
-Example:
+Typical variables include:
 
 ```text
-§ 573c
-
-(3) Bei Wohnraum nach § 549 Abs. 2 Nr. 2
-ist die Kündigung spätestens am 15. eines Monats
-zum Ablauf dieses Monats zulässig.
-```
-
-is represented approximately as:
-
-```text
-paragraph = 573c
-absatz   = 3
-```
-
-The legal reference:
-
-```text
-§ 549 Abs. 2 Nr. 2
-```
-
-is preserved as a reference.
-
-The number:
-
-```text
-15
-```
-
-is not incorrectly interpreted as legal `Nummer 15`.
-
----
-
-# 9. ChromaDB
-
-The application uses ChromaDB as its persistent vector store.
-
-Current database:
-
-```text
-chroma_legal_rag/
-```
-
-Collection:
-
-```text
-langchain
-```
-
-Example metadata:
-
-```python
-{
-    "source": "Mietrecht_kuendigung.txt",
-    "paragraph": "573c",
-    "absatz": "3",
-    "nummer": "none",
-    "original_text": "(3) Bei Wohnraum nach § 549 Abs. 2 Nr. 2 ..."
-}
-```
-
-The database is persistent and therefore does not need to be recreated every time the Streamlit application starts.
-
----
-
-# 10. Example Retrieved Document
-
-For example, a query such as:
-
-```text
-Bis wann kann bei Wohnraum nach § 549 Abs. 2 Nr. 2 gekündigt werden?
-```
-
-can retrieve:
-
-```text
-§ 573c Abs. 3 BGB
-
-(3) Bei Wohnraum nach § 549 Abs. 2 Nr. 2 ist die Kündigung
-spätestens am 15. eines Monats zum Ablauf dieses Monats zulässig.
-```
-
-The generated answer can then be grounded in this retrieved source.
-
----
-
-# 11. Networking and Proxy
-
-The networking layer is implemented in:
-
-```text
-src/legal_system_rag/network/client_factory.py
-```
-
-The system supports:
-
-1. Local PX proxy
-2. Corporate proxy
-3. Direct connection
-
-The proxy selection logic is:
-
-```text
-Is PX running?
-      │
-      ├── YES ──► Use PX proxy
-      │
-      └── NO
-           │
-           ▼
-      Corporate proxy configured?
-           │
-           ├── YES ──► Use corporate proxy
-           │
-           └── NO ──► Direct connection
-```
-
-The functions include:
-
-```python
-check_if_px_is_running()
-create_ssl_context()
-get_proxy_url()
-create_http_client()
-create_async_http_client()
-```
-
-The HTTPX clients use:
-
-```python
-trust_env=False
-```
-
-to prevent unexpected proxy/environment configuration from interfering with the explicitly configured networking setup.
-
----
-
-# 12. SSL Configuration
-
-The application uses a configured CA certificate bundle.
-
-The SSL context is created by:
-
-```python
-create_ssl_context()
-```
-
-Normal operation:
-
-```text
-Certificate verification = enabled
-Hostname verification    = enabled
-```
-
-For testing only:
-
-```python
-create_ssl_context(ignore_ssl=True)
-```
-
-disables certificate verification.
-
-This mode should not be used in production.
-
----
-
-# 13. Streamlit Application
-
-The user interface is implemented in:
-
-```text
-src/legal_system_rag/app.py
-```
-
-The application provides:
-
-* Chat interface
-* User questions
-* Generated answers
-* Retrieved legal sources
-* Conversation history
-* Error handling
-* Cached resources
-
-Streamlit resources are cached using:
-
-```python
-@st.cache_resource
-```
-
-This prevents expensive resources such as:
-
-* HTTP clients
-* LLMs
-* Embeddings
-* ChromaDB
-* RAG chain
-
-from being recreated unnecessarily on every Streamlit rerun.
-
----
-
-# 14. Configuration
-
-Configuration is centralized in:
-
-```text
-src/legal_system_rag/config/settings.py
-```
-
-Important configuration values include:
-
-```text
-EMBEDDING_MODEL
-LLM_QUERY_MODEL
-LLM_ANSWER_MODEL
-PERSIST_DIRECTORY
-CERT_FILE
+OPENAI_API_KEY
+HF_TOKEN
+PINECONE_API_KEY
+PINECONE_API_KEY2
 COMPANY_PROXY_URL
-PX_HOST
-PX_PORT
-RETRIES
-TIMEOUT
 ```
 
-Additional RAG configuration is stored in:
-
-```text
-config/rag_config.yaml
-```
-
-Sensitive configuration such as API keys belongs in:
-
-```text
-.env
-```
-
-The `.env` file must not be committed to Git.
-
----
-
-# 15. Environment Variables
-
-Create a local `.env` file based on:
+Create a local environment file from:
 
 ```text
 .env.example
 ```
 
-Example:
-
-```text
-OPENAI_API_KEY=your_api_key
-```
-
-Additional corporate network configuration may be required depending on the environment.
-
-Never commit the real API key to GitHub.
+Do not commit real credentials.
 
 ---
 
-# 16. Installation
+# 23. Installation
 
-Create a virtual environment:
+The project requires:
 
-```powershell
-python -m venv .venv
+```text
+Python >= 3.12
 ```
 
-Activate it:
+Create and activate the virtual environment:
 
 ```powershell
-.venv\Scripts\Activate.ps1
+.\activate.ps1
 ```
 
-Install the project:
-
-```powershell
-pip install -e .
-```
-
-Install development dependencies:
+Install the package:
 
 ```powershell
 pip install -e ".[dev]"
 ```
 
----
-
-# 17. Build the Python Package
-
-The project uses `pyproject.toml` for packaging.
-
-Build the package with:
+For local FlashRank experimentation:
 
 ```powershell
-python -m build
+pip install -e ".[local-rerank]"
 ```
 
-The generated files are placed in:
+For development with both optional packages:
 
-```text
-dist/
+```powershell
+pip install -e ".[dev,local-rerank,pdf]"
 ```
 
-Typically:
+The package is configured through `pyproject.toml`.
+
+---
+
+# 24. Quick Start
+
+For Windows PowerShell:
+
+```powershell
+.\activate.ps1
+.\createDB.ps1
+.\start.ps1
+```
+
+The scripts have clearly separated responsibilities.
+
+### `activate.ps1`
+
+Creates/checks and activates the Python virtual environment.
+
+### `createDB.ps1`
+
+Creates the ChromaDB database if it does not already exist.
+
+### `start.ps1`
+
+Starts the Streamlit application.
+
+---
+
+# 25. Create the Vector Database
+
+The ingestion entry point is:
+
+```powershell
+legal-ingest
+```
+
+or:
+
+```powershell
+python -m legal_system_rag.ingest_documents
+```
+
+The ingestion process reads:
 
 ```text
-dist/
-├── legal_system_rag-0.1.0-py3-none-any.whl
-└── legal_system_rag-0.1.0.tar.gz
+data/dokumente_mietrecht/
+```
+
+and writes the persistent vector database to:
+
+```text
+chroma_legal_rag/
+```
+
+The ingestion process:
+
+1. Loads source documents
+2. Parses legal structure
+3. Creates legal chunks
+4. Enriches chunks
+5. Generates embeddings
+6. Stores documents in ChromaDB
+7. Uses deterministic document IDs
+8. Processes documents in batches
+
+---
+
+# 26. Start the Application
+
+The Streamlit application can be started with:
+
+```powershell
+.\start.ps1
+```
+
+or:
+
+```powershell
+streamlit run src/legal_system_rag/app.py
+```
+
+The package also defines:
+
+```text
+legal-app
+```
+
+as a console entry point.
+
+After startup, Streamlit normally provides a local address such as:
+
+```text
+http://localhost:8501
 ```
 
 ---
 
-# 18. Running the Tests
+# 27. Testing
+
+The project uses Pytest.
 
 Run the complete test suite:
 
 ```powershell
-python -m pytest -v
+python -m pytest
 ```
 
-Run only unit tests:
+The configured Pytest options include:
 
-```powershell
-python -m pytest -v tests/unit/
+```text
+-v
+--import-mode=importlib
+--cov=src
+--cov-branch
+--cov-report=term-missing
+--cov-report=html
 ```
 
-Run only integration tests:
+The project defines the following markers:
 
-```powershell
-python -m pytest -v tests/integration/
+```text
+unit
+integration
+e2e
+proxy
 ```
 
-Run tests marked as integration tests:
+Examples:
 
 ```powershell
-python -m pytest -v -m integration
+pytest -m unit
+```
+
+```powershell
+pytest -m integration
+```
+
+```powershell
+pytest -m e2e
+```
+
+Tests requiring a local corporate PX proxy can be separated using:
+
+```powershell
+pytest -m proxy
 ```
 
 ---
 
-# 19. Test Architecture
+# 28. Test Structure
 
-The project separates tests into:
+Current tests include:
 
 ```text
 tests/
 ├── unit/
-│   └── test_legal_parser.py
+│   ├── test_EmptyRetriever.py
+│   ├── test_legal_parser.py
+│   └── test_router.py
 │
-└── integration/
-    └── test_network.py
+├── integration/
+│   └── test_network.py
+│
+└── e2e/
 ```
 
-## Unit Tests
+The unit tests cover isolated components such as:
 
-Unit tests verify individual functions without requiring the complete system.
+- Legal parser behavior
+- Router decisions
+- Empty retriever behavior
 
-Example:
+Integration tests cover external infrastructure such as network access.
 
-```text
-test_573c_15_is_not_a_legal_number
-test_573_real_legal_numbers_are_detected
-```
-
-These tests verify the legal parser behavior.
-
-## Integration Tests
-
-Integration tests verify interaction with external infrastructure such as:
-
-* PX proxy
-* SSL configuration
-* HTTPX
-* Network connectivity
-
-The network tests include:
-
-```text
-test_px
-test_ssl_default
-test_ssl_ignore
-test_network_client
-test_async_network_client
-```
+The project is configured for branch coverage reporting.
 
 ---
 
-# 20. Code Coverage
+# 29. Dependency Overview
 
-Coverage can be generated with:
+The core stack includes:
 
-```powershell
-python -m pytest -v --cov=legal_system_rag --cov-report=html
-```
-
-The HTML report is generated in:
-
-```text
-htmlcov/
-```
-
-Open:
-
-```text
-htmlcov/index.html
-```
-
-Coverage should be interpreted per module.
-
-A low overall percentage does not necessarily mean that the tested functionality is poorly tested. For example, Streamlit application code and full RAG pipelines may not be executed by unit tests.
-
----
-
-# 21. Running the Application
-
-From the project root:
-
-```powershell
-streamlit run src/legal_system_rag/app.py
-```
-
-Streamlit starts the application and displays a local URL.
-
-Typically:
-
-```text
-Local URL: http://localhost:8501
-```
-
-Open the URL in a browser.
+| Technology | Purpose |
+|---|---|
+| Python 3.12+ | Application language |
+| LangChain | RAG orchestration |
+| LangChain Core | Runnable and retriever abstractions |
+| LangChain OpenAI | OpenAI model integration |
+| ChromaDB | Persistent vector database |
+| BM25 | Sparse lexical retrieval |
+| OpenAI Embeddings | Dense vector representation |
+| OpenAI Chat Models | Query processing and answer generation |
+| Hugging Face | Cross-encoder inference |
+| HTTPX | Network client |
+| Pydantic | Structured LLM output and data validation |
+| PyYAML | Configuration |
+| python-dotenv | Environment configuration |
+| Streamlit | User interface |
+| Pytest | Testing |
+| Tenacity | Retry support |
 
 ---
 
-# 22. Application Startup Pipeline
+# 30. Design Principles
 
-When the application starts:
-
-```text
-streamlit run src/legal_system_rag/app.py
-             │
-             ▼
-          main()
-             │
-             ▼
-      initialize_resources()
-             │
-             ▼
-       get_proxy_url()
-             │
-             ▼
-      load_http_client()
-             │
-             ▼
-        load_resources()
-             │
-             ├── OpenAI Embeddings
-             ├── Query LLM
-             ├── Answer LLM
-             └── ChromaDB
-             │
-             ▼
-       load_rag_chain()
-             │
-             ▼
-       RAG application ready
-```
-
----
-
-# 23. User Query Pipeline
-
-When the user enters a question:
-
-```text
-User
- │
- ▼
-Streamlit chat_input()
- │
- ▼
-RAG Chain
- │
- ▼
-Query Extraction
- │
- ▼
-Retriever
- │
- ▼
-ChromaDB similarity search
- │
- ▼
-Relevant legal documents
- │
- ▼
-Answer prompt
- │
- ▼
-Answer LLM
- │
- ▼
-Generated answer
- │
- ├──► Display answer
- │
- └──► Display sources
-```
-
----
-
-# 24. Error Handling
-
-The application handles initialization errors separately from query-processing errors.
-
-Initialization errors:
-
-```python
-FileNotFoundError
-```
-
-are shown as warnings when the ChromaDB directory is missing or empty.
-
-Other initialization errors are reported as:
-
-```text
-Initialization failed
-```
-
-Query errors are reported as:
-
-```text
-Error during processing
-```
-
-The error type and message are displayed to facilitate debugging.
-
----
-
-# 25. Data Flow
-
-The complete system can be viewed as two major pipelines.
-
-## Offline Pipeline
-
-```text
-Legal Documents
-      │
-      ▼
-Parser
-      │
-      ▼
-Structured Legal Data
-      │
-      ▼
-Chunking
-      │
-      ▼
-Embeddings
-      │
-      ▼
-ChromaDB
-```
-
-## Online Pipeline
-
-```text
-User Question
-      │
-      ▼
-Query LLM
-      │
-      ▼
-Search Query
-      │
-      ▼
-ChromaDB
-      │
-      ▼
-Retrieved Documents
-      │
-      ▼
-Answer LLM
-      │
-      ▼
-Answer + Sources
-```
-
-This separation is important because document ingestion does not need to be performed every time a user asks a question.
-
----
-
-# 26. Technology Stack
-
-| Component            | Technology           |
-| -------------------- | -------------------- |
-| Programming Language | Python 3.12+         |
-| UI                   | Streamlit            |
-| RAG Framework        | LangChain            |
-| LLM                  | OpenAI               |
-| Embeddings           | OpenAI Embeddings    |
-| Vector Database      | ChromaDB             |
-| HTTP Client          | HTTPX                |
-| Configuration        | YAML / `.env`        |
-| Testing              | pytest               |
-| Coverage             | pytest-cov           |
-| Packaging            | `pyproject.toml`     |
-| Network Proxy        | PX / Corporate Proxy |
-
----
-
-# 27. Design Principles
-
-The project follows several software engineering principles.
+The implementation follows several software-engineering principles.
 
 ## Separation of Concerns
 
-Different responsibilities are separated:
+Different responsibilities are isolated:
 
 ```text
-parser/
-    Legal document parsing
-
-network/
-    HTTP and proxy configuration
-
-rag/
-    Retrieval and generation
-
-pipelines/
-    Document ingestion
-
-config/
-    Configuration
-
-app.py
-    User interface and application orchestration
-
-tests/
-    Verification
+Configuration
+     │
+     ├── Network
+     │
+     ├── Parser
+     │
+     ├── Ingestion
+     │
+     ├── Retrieval
+     │
+     ├── Reranking
+     │
+     ├── Evaluation
+     │
+     ├── Generation
+     │
+     └── UI
 ```
 
 ## Dependency Injection
 
-The RAG chain receives its dependencies explicitly:
+Models, vector stores, retrievers, and clients are passed into functions rather than being recreated throughout the application.
+
+For example, the agentic loop receives:
 
 ```python
-build_rag_chain(
-    llm_query,
-    llm_answer,
-    vector_store,
-)
+question
+llm_query
+vector_store
+global_bm25
 ```
 
-This makes the architecture easier to test and maintain.
+This makes the components easier to test and replace.
 
-## Resource Caching
+## Configuration-Driven Behavior
 
-Expensive resources are cached using:
+Important parameters are stored in YAML rather than hard-coded throughout the application.
+
+## Typed Structured Output
+
+The router uses Pydantic:
 
 ```python
-@st.cache_resource
+class RouterDecision(BaseModel):
+    ...
 ```
 
-This avoids unnecessary recreation of clients, models and vector stores.
+This gives the LLM routing decision a defined schema.
+
+## Resource Reuse
+
+Expensive resources such as:
+
+- HTTP clients
+- embeddings
+- LLM instances
+- ChromaDB
+- global BM25 index
+
+are reused through Streamlit resource caching.
 
 ---
 
-# 28. Git
+# 31. RAG Architecture at a Glance
 
-The project can be version-controlled using Git.
+The complete system can be summarized as:
 
-Initialize the repository:
-
-```powershell
-git init
-```
-
-Check the repository:
-
-```powershell
-git status
-```
-
-Add files:
-
-```powershell
-git add .
-```
-
-Create the first commit:
-
-```powershell
-git commit -m "Initial commit"
-```
-
-Add the GitHub remote:
-
-```powershell
-git remote add origin <YOUR_GITHUB_REPOSITORY>
-```
-
-Push:
-
-```powershell
-git branch -M main
-git push -u origin main
+```text
+                         ┌─────────────────┐
+                         │  Legal Sources  │
+                         └────────┬────────┘
+                                  │
+                                  ▼
+                         ┌─────────────────┐
+                         │ Legal Parser    │
+                         └────────┬────────┘
+                                  │
+                                  ▼
+                         ┌─────────────────┐
+                         │ LLM Enrichment  │
+                         └────────┬────────┘
+                                  │
+                                  ▼
+                         ┌─────────────────┐
+                         │   Embeddings    │
+                         └────────┬────────┘
+                                  │
+                                  ▼
+                         ┌─────────────────┐
+                         │    ChromaDB     │
+                         └────────┬────────┘
+                                  │
+                                  │
+              ┌───────────────────┘
+              │
+              ▼
+        ┌─────────────┐
+        │ User Query  │
+        └──────┬──────┘
+               │
+               ▼
+        ┌───────────────┐
+        │  LLM Router   │
+        └──────┬────────┘
+               │
+               ▼
+        Search Query
+        + Filters
+               │
+        ┌──────┴──────┐
+        ▼             ▼
+     Chroma          BM25
+     Dense           Sparse
+        │             │
+        └──────┬──────┘
+               ▼
+       Hybrid Candidates
+               │
+               ▼
+       Cross-Encoder
+         Reranking
+               │
+               ▼
+             Top-K
+               │
+               ▼
+       Relevance Check
+               │
+          ┌────┴────┐
+          │         │
+         Yes        No
+          │         │
+          │      Query Rewrite
+          │         │
+          │         └──────► Retry
+          │
+          ▼
+       Answer LLM
+          │
+          ▼
+    Grounded Answer
+          │
+          ▼
+   Sources + Metadata
 ```
 
 ---
 
-# 29. Important Files That Must Not Be Committed
+# 32. Retrieval Strategy in More Detail
 
-The following should normally be excluded from Git:
+The current agentic retrieval strategy deliberately uses multiple retrieval stages.
+
+```text
+Stage 1
+───────
+LLM Router
+    │
+    ▼
+Search Strategy
+```
+
+```text
+Stage 2
+───────
+Dense + Sparse Retrieval
+    │
+    ├── ChromaDB
+    └── BM25
+    │
+    ▼
+Large Candidate Set
+```
+
+```text
+Stage 3
+───────
+Cross-Encoder Reranking
+    │
+    ▼
+High-quality Top-K
+```
+
+```text
+Stage 4
+───────
+LLM Relevance Evaluation
+    │
+    ├── Relevant → answer
+    └── Not relevant → rewrite and retry
+```
+
+This multi-stage design separates:
+
+```text
+Recall
+  ↓
+Ranking
+  ↓
+Evaluation
+  ↓
+Generation
+```
+
+rather than expecting one retrieval mechanism to perform all tasks.
+
+---
+
+# 33. Why Hybrid Retrieval?
+
+Dense and sparse retrieval have different strengths.
+
+### Dense Retrieval
+
+Strong for:
+
+- semantic similarity
+- paraphrases
+- different wording
+- concept-level questions
+
+### BM25
+
+Strong for:
+
+- exact terminology
+- legal identifiers
+- names
+- specific words
+- lexical matches
+
+Combining them improves retrieval robustness.
+
+```text
+                 Query
+                   │
+          ┌────────┴────────┐
+          ▼                 ▼
+       Semantic          Lexical
+       Retrieval         Retrieval
+          │                 │
+          └────────┬────────┘
+                   ▼
+             Hybrid Ranking
+```
+
+---
+
+# 34. Why Reranking?
+
+Initial retrieval is optimized for finding a sufficiently broad candidate set.
+
+The reranker is optimized for deciding which candidates are most relevant to the exact query.
+
+Therefore:
+
+```text
+Retriever
+   =
+high recall
+
+Reranker
+   =
+high precision
+```
+
+The architecture uses:
+
+```text
+Retrieve many
+      ↓
+Rerank candidates
+      ↓
+Keep Top-K
+```
+
+This is especially useful for legal questions where several chunks may concern similar concepts but only a subset directly answers the question.
+
+---
+
+# 35. Why Agentic Retrieval?
+
+The standard RAG mode follows a fixed pipeline.
+
+The agentic mode allows the retrieval process to react to its own intermediate result.
+
+```text
+Fixed RAG:
+
+Question
+  ↓
+Retrieve
+  ↓
+Answer
+```
+
+versus:
+
+```text
+Agentic RAG:
+
+Question
+  ↓
+Route
+  ↓
+Retrieve
+  ↓
+Rerank
+  ↓
+Evaluate
+  ↓
+ ┌───────────────┐
+ │ Is retrieval  │
+ │ sufficient?   │
+ └───────┬───────┘
+         │
+    ┌────┴────┐
+    ▼         ▼
+   Yes        No
+    │         │
+    │      Rewrite
+    │         │
+    │      Retrieve
+    │         │
+    └────┬────┘
+         ▼
+       Answer
+```
+
+This makes retrieval adaptive rather than completely static.
+
+---
+
+# 36. Limitations
+
+This project is intentionally a technical demonstration.
+
+It is **not** a production legal service and does not provide legal advice.
+
+Important limitations include:
+
+- The legal corpus is curated and limited.
+- The system does not represent the complete German legal system.
+- Retrieval quality depends on the indexed documents.
+- LLM-generated enrichment can contain errors.
+- LLM-based relevance evaluation can itself be imperfect.
+- Cross-encoder inference currently uses an external Hugging Face service.
+- The application does not replace professional legal review.
+- No claim is made that generated answers are legally complete or authoritative.
+- Production deployment would require substantially more evaluation, monitoring, security, access control, and corpus management.
+
+---
+
+# 37. Security and Secrets
+
+Never commit:
 
 ```text
 .env
-.venv/
-chroma_legal_rag/
-certs/*.crt
-.streamlit/secrets.toml
-__pycache__/
-.pytest_cache/
-htmlcov/
 ```
 
-The exact exclusions are defined in:
+or other files containing:
 
 ```text
-.gitignore
+OPENAI_API_KEY
+HF_TOKEN
+PINECONE_API_KEY
 ```
 
-The OpenAI API key must never be committed.
-
----
-
-# 30. Streamlit Cloud Deployment
-
-The application can be deployed using Streamlit Cloud.
-
-The GitHub repository should contain the source code and configuration files, but not secrets.
-
-The OpenAI API key should be configured through Streamlit Cloud Secrets.
-
-The deployment entry point is:
+Use:
 
 ```text
-src/legal_system_rag/app.py
+.env.example
 ```
 
-The application also requires access to the required ChromaDB data.
+as the template for local configuration.
 
-For cloud deployment, the persistent local ChromaDB design may need to be adapted depending on how the vector database is hosted and persisted.
-
----
-
-# 31. Current ChromaDB Requirement
-
-The application expects:
+The local Chroma database should normally remain outside Git:
 
 ```text
 chroma_legal_rag/
 ```
 
-to exist and contain the indexed documents.
-
-At startup, `app.py` checks:
-
-1. Does the directory exist?
-2. Is the directory empty?
-
-If either condition fails, the application stops and asks the user to index the documents first.
+Likewise, local certificates and development artifacts should be handled according to the target environment's security policy.
 
 ---
 
-# 32. Example Question
+# 38. Project Status
 
-Example user question:
+Current capabilities:
+
+- [x] Modular Python package
+- [x] Legal document parser
+- [x] Paragraph extraction
+- [x] Absatz extraction
+- [x] Legal number detection
+- [x] Legal reference extraction
+- [x] Structured metadata
+- [x] LLM document enrichment
+- [x] Batch ingestion
+- [x] OpenAI embeddings
+- [x] Persistent ChromaDB
+- [x] Dense retrieval
+- [x] Sparse BM25 retrieval
+- [x] Hybrid retrieval
+- [x] LLM query router
+- [x] Paragraph-aware routing
+- [x] Cross-encoder reranking
+- [x] Score-aware retrieval support
+- [x] Relevance evaluation
+- [x] Query rewriting
+- [x] Agentic/self-corrective retrieval loop
+- [x] Grounded answer generation
+- [x] Source document display
+- [x] Streamlit chat application
+- [x] Configurable model selection
+- [x] Proxy/PX support
+- [x] Custom certificate handling
+- [x] HTTPX client handling
+- [x] Pytest unit tests
+- [x] Integration tests
+- [x] E2E test structure
+- [x] Coverage reporting
+- [x] Python packaging
+- [x] CLI entry points
+
+---
+
+# 39. Future Extensions
+
+Potential future extensions include:
 
 ```text
-Bis wann kann bei Wohnraum nach § 549 Abs. 2 Nr. 2 gekündigt werden?
+Multi-source retrieval
+        │
+        ├── German law
+        ├── Legal commentaries
+        ├── Legal reference material
+        └── Web search
+                │
+                ▼
+          Source Routing
+                │
+                ▼
+          Evidence Fusion
 ```
 
-Expected retrieval:
+Other possible extensions:
 
-```text
-§ 573c Abs. 3 BGB
-```
+- Knowledge Graph / GraphRAG
+- Multi-query retrieval
+- HyDE
+- Query expansion
+- More advanced reranking
+- Retrieval evaluation datasets
+- Automated RAG evaluation
+- Citation validation
+- Confidence estimation
+- Long-term conversation memory
+- Additional legal domains
+- Pinecone-based deployment
+- Production observability
+- Retrieval and generation tracing
+- Guardrails and policy enforcement
 
-Relevant legal text:
-
-```text
-(3) Bei Wohnraum nach § 549 Abs. 2 Nr. 2 ist die Kündigung
-spätestens am 15. eines Monats zum Ablauf dieses Monats zulässig.
-```
-
-The RAG system uses this retrieved document to generate the answer.
+These are possible architectural extensions rather than requirements of the current implementation.
 
 ---
 
-# 33. Project Status
+# 40. Development Philosophy
 
-The current implementation includes:
-
-* [x] Legal document parser
-* [x] Paragraph extraction
-* [x] Absatz extraction
-* [x] Legal number detection
-* [x] Legal reference extraction
-* [x] Document ingestion pipeline
-* [x] OpenAI embeddings
-* [x] Persistent ChromaDB
-* [x] Query extraction
-* [x] Vector retrieval
-* [x] LLM answer generation
-* [x] Source document display
-* [x] Streamlit UI
-* [x] PX proxy support
-* [x] Corporate proxy support
-* [x] SSL configuration
-* [x] Synchronous HTTPX client
-* [x] Asynchronous HTTPX client
-* [x] Unit tests
-* [x] Integration tests
-* [x] pytest coverage
-* [x] Python packaging
-* [x] Git/GitHub support
-
----
-
-# 34. Development Philosophy
-
-The system is designed as a modular RAG application rather than as a single monolithic script.
-
-The main architectural idea is:
-
-```text
-              Legal Documents
-                    │
-                    ▼
-              Parsing Layer
-                    │
-                    ▼
-             Ingestion Layer
-                    │
-                    ▼
-               ChromaDB
-                    │
-                    ▼
-             Retrieval Layer
-                    │
-                    ▼
-            Generation Layer
-                    │
-                    ▼
-             Streamlit App
-```
-
-This structure makes it possible to modify one layer without unnecessarily changing the others.
-
-For example:
-
-* The parser can be refactored without changing the Streamlit UI.
-* The vector database can be replaced without redesigning the UI.
-* The LLM can be changed without changing the document parser.
-* The network implementation can be changed without modifying the RAG logic.
-* Tests can verify individual components independently.
-
----
-
-# 35. Quick Start
-
-```powershell
-# 1. Activate virtual environment
-.venv\Scripts\Activate.ps1
-
-# 2. Install package
-pip install -e ".[dev]"
-
-# 3. Run tests
-python -m pytest -v
-
-# 4. Start Streamlit application
-streamlit run src/legal_system_rag/app.py
-```
-
-Then open the Streamlit application in the browser.
-
----
-
-# 36. Summary
-
-An end-to-end RAG pipeline demonstrating professional AI engineering practices using a curated set of German tenancy law texts
+The project is intentionally implemented as a real Python software system rather than as a single RAG notebook.
 
 The architecture separates:
 
 ```text
-Configuration
-      │
-      ├── Network
-      │
-      ├── Parsing
-      │
-      ├── Ingestion
-      │
-      ├── Vector Storage
-      │
-      ├── Retrieval
-      │
-      ├── LLM Generation
-      │
-      ├── Testing
-      │
-      └── User Interface
+                 Software Architecture
+                         │
+        ┌────────────────┼────────────────┐
+        │                │                │
+        ▼                ▼                ▼
+     Ingestion        Retrieval        UI
+        │                │                │
+        ▼                ▼                ▼
+      Parser          Reranker       Streamlit
+        │                │
+        ▼                ▼
+     ChromaDB       Evaluation
+                         │
+                         ▼
+                    Generation
 ```
 
-The result is a modular Python application that combines legal document processing, vector retrieval, LLM-based generation, source transparency, automated testing, corporate network support, and Streamlit deployment.
+This makes individual components replaceable.
 
-````
+For example:
+
+- ChromaDB can be replaced by another vector store.
+- BM25 can be replaced or supplemented by another sparse retriever.
+- The reranker can be replaced by another cross-encoder.
+- The LLM can be changed independently of the parser.
+- The router can evolve without redesigning the UI.
+- The network layer can be adapted to another environment.
+- Unit tests can validate individual components independently.
+
+---
+
+# 41. Example End-to-End Flow
+
+For a question such as:
+
+```text
+"Welche Kündigungsfrist gilt für einen Mieter?"
+```
+
+the agentic system can conceptually execute:
+
+```text
+1. User Question
+       │
+       ▼
+2. LLM Router
+       │
+       └── concept_search
+       │
+       ▼
+3. Search Query
+       │
+       ▼
+4. ChromaDB + BM25
+       │
+       ▼
+5. Candidate Documents
+       │
+       ▼
+6. Cross-Encoder Reranking
+       │
+       ▼
+7. Top-K Selection
+       │
+       ▼
+8. LLM Relevance Evaluation
+       │
+       ├── relevant
+       │
+       ▼
+9. Answer LLM
+       │
+       ▼
+10. Grounded Answer
+       │
+       ▼
+11. Retrieved Sources
+```
+
+If the relevance evaluation determines that the retrieved documents are insufficient:
+
+```text
+Relevance = no
+      │
+      ▼
+Query Rewrite
+      │
+      ▼
+New Retrieval
+      │
+      ▼
+Reranking
+      │
+      ▼
+Relevance Evaluation
+      │
+      ▼
+Final Answer
+```
+
+---
+
+# 42. Command Reference
+
+### Environment
+
+```powershell
+.\activate.ps1
+```
+
+### Install
+
+```powershell
+pip install -e ".[dev]"
+```
+
+### Ingest documents
+
+```powershell
+legal-ingest
+```
+
+or:
+
+```powershell
+python -m legal_system_rag.ingest_documents
+```
+
+### Run tests
+
+```powershell
+python -m pytest
+```
+
+### Start application
+
+```powershell
+legal-app
+```
+
+or:
+
+```powershell
+streamlit run src/legal_system_rag/app.py
+```
+
+### Complete Windows startup
+
+```powershell
+.\activate.ps1
+.\createDB.ps1
+.\start.ps1
+```
+
+---
+
+# 43. Repository
+
+GitHub:
+
+```text
+https://github.com/gfwu61/legal-system-rag-ChromaDB
+```
+
+---
+
+# 44. License
+
+This project is licensed under the MIT License.
+
+See:
+
+```text
+LICENSE
+```
+
+---
+
+# 45. Summary
+
+This project implements a modular, end-to-end RAG system for German tenancy law.
+
+Its architecture combines:
+
+```text
+Legal-aware Parsing
+        +
+LLM Enrichment
+        +
+OpenAI Embeddings
+        +
+ChromaDB
+        +
+BM25
+        +
+Hybrid Retrieval
+        +
+Cross-Encoder Reranking
+        +
+LLM Routing
+        +
+Relevance Evaluation
+        +
+Query Rewriting
+        +
+Agentic Retrieval
+        +
+Grounded Generation
+        +
+Source Transparency
+        +
+Automated Testing
+        +
+Streamlit
+```
+
+The resulting system demonstrates the evolution from a conventional linear RAG pipeline toward a more adaptive, self-corrective RAG architecture while keeping the individual components modular and testable.
+
+The project is intended to demonstrate practical RAG engineering capabilities, software architecture, retrieval techniques, LLM orchestration, and integration of AI components into a structured Python application.
