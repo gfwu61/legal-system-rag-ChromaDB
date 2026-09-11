@@ -120,7 +120,10 @@ def get_secret_or_env(key: str) -> str | None:
 OPENAI_API_KEY = get_secret_or_env("OPENAI_API_KEY")
 PINECONE_API_KEY = get_secret_or_env("PINECONE_API_KEY")
 PINECONE_API_KEY2 = get_secret_or_env("PINECONE_API_KEY2")
+HF_TOKEN = get_secret_or_env("HF_TOKEN")
 COMPANY_PROXY_URL = get_secret_or_env("COMPANY_PROXY_URL")
+
+
 
 # ============================================================
 # NETWORK & PROXY SETTINGS

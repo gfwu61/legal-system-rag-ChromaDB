@@ -57,10 +57,38 @@ KONTEXT:
         ("human", "{question}")
     ])
     
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.prompts import ChatPromptTemplate
 
+# Query Expansion
 def build_query_prompt():
+    return ChatPromptTemplate.from_messages([
+        (
+            "system",
+            "Du bist ein juristischer Such-Assistent für deutsches Mietrecht.\n"
+            "Erzeuge aus der Nutzerfrage eine präzise Suchanfrage (search_query).\n\n"
+
+            "STRIKTE REGELN FOR SEARCH_QUERY:\n"
+            "1. Wenn der Nutzer nach FRISTEN oder ZEITEN fragt ('wie lange', 'wann', 'Frist'):\n"
+            "   - Konzentriere dich AUSSCHLIESSLICH auf Fristen, Daten und Ausführungszeiten.\n"
+            "   - Ergänze KEINE Kündigungsgründe (wie 'Eigenbedarf', 'Pflichtverletzung', 'berechtigtes Interesse').\n"
+            "2. Halte die Anfrage kurz (max. 4–6 präzise Fachbegriffe).\n"
+            "3. paragraph_filter: Nur vom Nutzer EXPLIZIT genannte Paragraphen als Ziffer eintragen. Sonst [].\n\n"
+
+            "BEISPIEL:\n"
+            "Frage: 'wie lang ist die Kündigungsfrist für den Vermieter?'\n"
+            "search_query: 'Kündigungsfrist ordentliche Kündigung Vermieter § 573c BGB'\n"
+            "paragraph_filter: []"
+        ),
+        ("human", "{question}")
+    ])
+    
+# Keyword Extraction or Query Reduction (Suchanfrage-Reduktion).
+"""
+build_query_prompt_old() dient der extraktiven Transformation der Freitext-Nutzerfrage in ein minimalistisches Keyword-Set. Anstatt die Anfrage semantisch anzureichern, verfolgt dieser Ansatz eine Reduktion der Eingabe auf 2 bis 4 essenzielle Fachbegriffe unter Entfernung von Füllwörtern, um die Trefferquote in traditionalen Keyword-basierten Suchindizes (wie BM25) zu optimieren.
+
+build_query_prompt_old() performs extractive keyword parsing. It strips natural language query noise and narrows down the user prompt to 2–4 core legal terms, ensuring a highly focused keyword search without adding synthetic context.
+"""
+
+def build_query_prompt_old():
     return ChatPromptTemplate.from_messages([
         (
             "system",

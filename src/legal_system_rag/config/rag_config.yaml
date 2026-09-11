@@ -15,7 +15,7 @@ vector_DB:
   namespace_Steuerrecht: Steuerrecht
 
 # mode: 1 , classic(dense+spare-bm25)+reranker), 2: BlendedFlashRankRetriever
-# weight_hybrid=0.5, weight_reranker= 1 - weight_hybrid=0.5
+# weight_hybrid=0.4, weight_reranker= 1 - weight_hybrid=0.6
 retriever:
   retriever_mode: 2
   weight_hybrid: 0.4

@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,9 @@ from legal_system_rag.network.client_factory import (
     create_http_client,
     get_proxy_url,
 )
-from legal_system_rag.rag.chain import build_rag_chain
+from legal_system_rag.rag.agentic_rag import run_agentic_rag_pipeline
+from legal_system_rag.rag.chain import build_rag_chain, initialize_global_bm25
+import warnings
 
 
 # ============================================================
@@ -41,7 +43,7 @@ HELP_QUESTIONS = {
     "Kündigung": [
         "wie lang ist die Kündigungsfrist für den Mieter?",
         "wie lang ist die Kündigungsfrist für den Vermieter?",
-         "wie ist die Kündigungsfrist für den Vermieter in §573 und 573c geregelt?",       
+        "wie ist die Kündigungsfrist für den Vermieter in §573 und 573c geregelt?",
         "wie schnell kann ich aus meiner Wohnung als Mieter aus?",
         "Unter welchen Voraussetzungen kann ein Vermieter meinem Mietverhältnis ordentlich kündigen?",
         "Darf mein Vermieter wegen Eigenbedarfs kündigen?",
@@ -75,12 +77,8 @@ def load_http_client(
     proxy_url: str | None,
 ):
     """
-    Create and cache a synchronous HTTPX client.
-
-    The client is reused across Streamlit interactions to avoid
-    creating a new HTTP connection for every request.
+    Create and cache a synchronous HTTPX client for network requests.
     """
-
     return create_http_client(
         proxy_url=proxy_url,
         ignore_ssl=IGNORE_SSL,
@@ -97,17 +95,9 @@ def load_resources(
     proxy_url: str | None,
 ):
     """
-    Initialize the OpenAI embeddings, LLMs, and ChromaDB.
-
-    The HTTP client is used for OpenAI communication.
-
-    The leading underscore in _sync_client prevents Streamlit
-    from using the client itself as a cache key.
-
-    proxy_url is intentionally retained as a cache dependency
-    for the network configuration.
+    Initialize OpenAI models, ChromaDB vector store, and global BM25 index.
+    The global BM25 index is built once in memory to avoid redundant re-indexing.
     """
-
     del proxy_url
 
     embeddings = OpenAIEmbeddings(
@@ -127,38 +117,36 @@ def load_resources(
         http_client=_sync_client,
     )
 
-    persist_path = Path(
-        PERSIST_DIRECTORY
-    )
+    persist_path = Path(PERSIST_DIRECTORY)
 
     if not persist_path.exists():
         raise FileNotFoundError(
-            f"Vector store directory "
-            f"'{persist_path}' does not exist."
+            f"Vector store directory '{persist_path}' does not exist."
         )
 
     if not any(persist_path.iterdir()):
         raise FileNotFoundError(
-            f"Vector store directory "
-            f"'{persist_path}' is empty."
+            f"Vector store directory '{persist_path}' is empty."
         )
 
     vector_store = Chroma(
-        persist_directory=str(
-            persist_path
-        ),
+        persist_directory=str(persist_path),
         embedding_function=embeddings,
     )
+
+    # Initialize the global BM25 index once for the entire database
+    global_bm25 = initialize_global_bm25(vector_store)
 
     return (
         llm_query,
         llm_answer,
         vector_store,
+        global_bm25,
     )
 
 
 # ============================================================
-# RAG CHAIN
+# RAG CHAIN (MODE 1)
 # ============================================================
 
 @st.cache_resource
@@ -166,16 +154,57 @@ def load_rag_chain(
     _llm_query,
     _llm_answer,
     _vector_store,
+    _global_bm25,
+    retriever_mode: int,
 ):
     """
-    Build and cache the RAG chain.
+    Build and cache the standard RAG chain (Mode 1), injecting pre-built BM25 index and retriever mode.
     """
-
     return build_rag_chain(
         _llm_query,
         _llm_answer,
         _vector_store,
+        _global_bm25,
+        retriever_mode=retriever_mode,
     )
+
+
+# ============================================================
+# RESOURCE INITIALIZATION
+# ============================================================
+
+def initialize_resources(retriever_mode: int = 1) -> dict[str, Any]:
+    """
+    Initialize all system resources including models, vector database, BM25, and RAG chain.
+    """
+    proxy_url = get_proxy_url()
+    sync_client = load_http_client(proxy_url)
+
+    (
+        llm_query,
+        llm_answer,
+        vector_store,
+        global_bm25,
+    ) = load_resources(
+        sync_client,
+        proxy_url,
+    )
+
+    rag_chain = load_rag_chain(
+        llm_query,
+        llm_answer,
+        vector_store,
+        global_bm25,
+        retriever_mode=retriever_mode,
+    )
+
+    return {
+        "rag_chain": rag_chain,
+        "llm_query": llm_query,
+        "llm_answer": llm_answer,
+        "vector_store": vector_store,
+        "global_bm25": global_bm25,
+    }
 
 
 # ============================================================
@@ -186,54 +215,21 @@ def render_sources(
     source_docs: list[Any] | None,
 ) -> None:
     """
-    Display the documents retrieved by the RAG system.
-
-    Each source displays its paragraph number, source file,
-    and retrieved legal text.
+    Display retrieved legal documents and metadata inside an expandable UI container.
     """
-
     if not source_docs:
         return
 
-    with st.expander(
-        "📚 Retrieved Legal Texts & Sources"
-    ):
+    with st.expander("📚 Retrieved Legal Texts & Sources"):
+        for index, doc in enumerate(source_docs, start=1):
+            metadata = getattr(doc, "metadata", {}) or {}
+            page_content = getattr(doc, "page_content", "")
+            paragraph = metadata.get("paragraph", "Unknown")
+            source = metadata.get("source")
 
-        for index, doc in enumerate(
-            source_docs,
-            start=1,
-        ):
-
-            metadata = getattr(
-                doc,
-                "metadata",
-                {},
-            ) or {}
-
-            page_content = getattr(
-                doc,
-                "page_content",
-                "",
-            )
-
-            paragraph = metadata.get(
-                "paragraph",
-                "Unknown",
-            )
-
-            source = metadata.get(
-                "source"
-            )
-
-            title = (
-                f"**Source {index}: "
-                f"Paragraph {paragraph}**"
-            )
-
+            title = f"**Source {index}: Paragraph {paragraph}**"
             if source:
-                title += (
-                    f"  \nFile: `{source}`"
-                )
+                title += f"  \nFile: `{source}`"
 
             st.markdown(title)
             st.caption(page_content)
@@ -245,31 +241,16 @@ def render_sources(
 
 def render_chat_history() -> None:
     """
-    Render the conversation history stored in Streamlit
-    session state.
+    Render all messages saved in the Streamlit session state.
     """
-
     for message in st.session_state.messages:
-
-        role = message.get(
-            "role",
-            "assistant",
-        )
-
-        content = message.get(
-            "content",
-            "",
-        )
+        role = message.get("role", "assistant")
+        content = message.get("content", "")
 
         with st.chat_message(role):
-
             st.markdown(content)
-
             if role == "assistant":
-
-                render_sources(
-                    message.get("docs")
-                )
+                render_sources(message.get("docs"))
 
 
 # ============================================================
@@ -278,81 +259,21 @@ def render_chat_history() -> None:
 
 def render_help_column() -> str | None:
     """
-    Display example legal questions in the help column.
-
-    Returns the selected example question when the user
-    clicks one of the example buttons.
+    Display interactive example legal questions grouped by category.
     """
-
     selected_question = None
 
-    st.subheader(
-        "💡 Example Questions"
-    )
-
-    st.caption(
-        "Click a question to use it directly "
-        "in the chatbot."
-    )
+    st.subheader("💡 Example Questions")
+    st.caption("Click a question to submit it directly to the chatbot.")
 
     for category, questions in HELP_QUESTIONS.items():
-
-        with st.expander(
-            category,
-            expanded=True,
-        ):
-
-            for index, question in enumerate(
-                questions
-            ):
-
-                button_key = (
-                    f"help_{category}_{index}"
-                )
-
-                if st.button(
-                    question,
-                    key=button_key,
-                    use_container_width=True,
-                ):
-
+        with st.expander(category, expanded=True):
+            for index, question in enumerate(questions):
+                button_key = f"help_{category}_{index}"
+                if st.button(question, key=button_key, use_container_width=True):
                     selected_question = question
 
     return selected_question
-
-
-# ============================================================
-# RESOURCE INITIALIZATION
-# ============================================================
-
-def initialize_resources():
-    """
-    Initialize the proxy, HTTP client, LLMs, vector store
-    and RAG chain.
-    """
-
-    proxy_url = get_proxy_url()
-
-    sync_client = load_http_client(
-        proxy_url
-    )
-
-    (
-        llm_query,
-        llm_answer,
-        vector_store,
-    ) = load_resources(
-        sync_client,
-        proxy_url,
-    )
-
-    rag_chain = load_rag_chain(
-        llm_query,
-        llm_answer,
-        vector_store,
-    )
-
-    return rag_chain
 
 
 # ============================================================
@@ -360,22 +281,14 @@ def initialize_resources():
 # ============================================================
 
 def process_question(
-    rag_chain,
+    resources: dict[str, Any],
     user_input: str,
+    rag_mode: int,
 ) -> None:
     """
-    Execute the RAG pipeline for a user question.
-
-    The question is added to the conversation history,
-    the RAG chain is invoked, and the generated answer
-    together with the retrieved sources is displayed
-    and stored.
+    Execute question processing using either Mode 1 (Standard RAG) or Mode 2 (Agentic RAG Loop).
     """
-
-    # --------------------------------------------------------
-    # Store user message
-    # --------------------------------------------------------
-
+    # 1. Append user prompt to chat history
     st.session_state.messages.append(
         {
             "role": "user",
@@ -383,41 +296,26 @@ def process_question(
         }
     )
 
-    # --------------------------------------------------------
-    # Execute RAG pipeline
-    # --------------------------------------------------------
-
+    # 2. Execute RAG pipeline based on selected mode
     try:
-
-        result = rag_chain.invoke(
-            user_input
-        )
-
-        if not isinstance(
-            result,
-            dict,
-        ):
-            raise TypeError(
-                "The RAG chain must return "
-                "a dictionary."
+        if rag_mode == 1:
+            # Mode 1: Standard linear RAG execution chain
+            result = resources["rag_chain"].invoke(user_input)
+            answer_text = result.get("answer", "No answer could be generated.")
+            source_docs = result.get("docs", [])
+        else:
+            # Mode 2: Agentic evaluation loop with automated query rewriting
+            result = run_agentic_rag_pipeline(
+                question=user_input,
+                llm_query=resources["llm_query"],
+                llm_answer=resources["llm_answer"],
+                vector_store=resources["vector_store"],
+                global_bm25=resources["global_bm25"],
             )
+            answer_text = result.get("answer", "No answer could be generated.")
+            source_docs = result.get("source_documents", [])
 
-        answer_text = str(
-            result.get(
-                "answer",
-                "No answer could be generated.",
-            )
-        )
-
-        source_docs = result.get(
-            "docs",
-            [],
-        )
-
-        # ----------------------------------------------------
-        # Store assistant message
-        # ----------------------------------------------------
-
+        # 3. Append assistant response to chat history
         st.session_state.messages.append(
             {
                 "role": "assistant",
@@ -427,13 +325,10 @@ def process_question(
         )
 
     except Exception as error:
-
         error_message = (
-            "❌ Error while processing "
-            "the question: "
+            "❌ Error while processing the question: "
             f"{type(error).__name__}: {error}"
         )
-
         st.session_state.messages.append(
             {
                 "role": "assistant",
@@ -449,70 +344,34 @@ def process_question(
 
 def scroll_chat_to_bottom() -> None:
     """
-    Scroll the chat area to the newest message.
-
-    The script searches for the scrollable Streamlit
-    container and moves it to its bottom.
+    Scroll the chat UI container down to display the latest message automatically.
     """
-
     html(
         """
         <script>
-
         function scrollChatToBottom() {
-
             const doc = window.parent.document;
-
-            const elements = doc.querySelectorAll(
-                '[data-testid="stVerticalBlock"]'
-            );
-
+            const elements = doc.querySelectorAll('[data-testid="stVerticalBlock"]');
             let scrollContainer = null;
 
             for (const element of elements) {
+                const style = window.getComputedStyle(element);
+                const isScrollable = element.scrollHeight > element.clientHeight;
+                const hasOverflow = style.overflowY === "auto" || style.overflowY === "scroll";
 
-                const style =
-                    window.getComputedStyle(element);
-
-                const isScrollable =
-                    element.scrollHeight >
-                    element.clientHeight;
-
-                const hasOverflow =
-                    style.overflowY === "auto" ||
-                    style.overflowY === "scroll";
-
-                if (
-                    isScrollable &&
-                    hasOverflow
-                ) {
+                if (isScrollable && hasOverflow) {
                     scrollContainer = element;
                 }
             }
 
             if (scrollContainer) {
-
-                scrollContainer.scrollTop =
-                    scrollContainer.scrollHeight;
+                scrollContainer.scrollTop = scrollContainer.scrollHeight;
             }
         }
 
-
-        setTimeout(
-            scrollChatToBottom,
-            100
-        );
-
-        setTimeout(
-            scrollChatToBottom,
-            300
-        );
-
-        setTimeout(
-            scrollChatToBottom,
-            600
-        );
-
+        setTimeout(scrollChatToBottom, 100);
+        setTimeout(scrollChatToBottom, 300);
+        setTimeout(scrollChatToBottom, 600);
         </script>
         """,
         height=0,
@@ -520,92 +379,85 @@ def scroll_chat_to_bottom() -> None:
 
 
 # ============================================================
-# MAIN APPLICATION
+# MAIN APPLICATION ENTRYWAY
 # ============================================================
 
 def main() -> None:
     """
-    Run the Streamlit Legal RAG application.
-
-    The function initializes the RAG infrastructure,
-    displays the chat history, provides example questions,
-    accepts user questions, invokes the RAG chain, and
-    displays the generated answer together with the
-    retrieved legal sources.
+    Main execution loop for Streamlit application. Sets up sidebar mode selection,
+    renders chat layout, handles user input, and invokes the chosen pipeline mode.
     """
+    # --------------------------------------------------------
+    # Page Header & Sidebar Setup
+    # --------------------------------------------------------
+    st.title("⚖️ Legal RAG System")
+    st.caption("Legal answers based on the configured Chroma database")
 
     # --------------------------------------------------------
-    # Page header
+    # Sidebar: Pipeline & Retriever Configuration
     # --------------------------------------------------------
-
-    st.title(
-        "⚖️ Legal RAG System"
+    st.sidebar.header("⚙️ Pipeline Configuration")
+    
+    selected_mode_label = st.sidebar.radio(
+        "Select RAG Pipeline Mode:",
+        options=[
+            "Standard RAG (Mode 1)",
+            "Self-Corrective RAG (Mode 2)"
+        ],
+        index=0,
+        help="Mode 1 runs a standard single-pass retrieval. Mode 2 executes an agentic loop with self-evaluations and query rewrites."
     )
+    
+    rag_mode = 1 if "Standard RAG" in selected_mode_label else 2
 
-    st.caption(
-        "Legal answers based on the configured "
-        "Chroma database"
-    )
+    # Standardwert festlegen
+    retriever_mode = 1 
+
+    # Zeige die Optionen NUR an, wenn Standard RAG (Mode 1) gewählt ist:
+    if rag_mode == 1:
+        with st.sidebar.container():
+            st.sidebar.markdown("---")
+            retriever_mode_label = st.sidebar.radio(
+                "↳ Select Retriever Mode (for Mode 1):",
+                options=[
+                    "Mode 1: Normal (Only Reranking)",
+                    "Mode 2: With Score (Score Blending)"
+                ],
+                index=0,
+                help="Mode 1 uses plain reranking. Mode 2 blends scores from base retrievers."
+            )
+            retriever_mode = 1 if "Mode 1: Normal" in retriever_mode_label else 2
+        st.sidebar.markdown("---")
 
     # --------------------------------------------------------
-    # Initialize chat history
+    # Session State & Resource Initialization
     # --------------------------------------------------------
-
     if "messages" not in st.session_state:
-
         st.session_state.messages = []
 
-    # --------------------------------------------------------
-    # Initialize RAG resources
-    # --------------------------------------------------------
-
     try:
-
-        rag_chain = initialize_resources()
-
+        # Hier wird der retriever_mode nun korrekt mitgegeben
+        resources = initialize_resources(retriever_mode=retriever_mode)
     except FileNotFoundError as error:
-
-        st.warning(
-            f"⚠️ {error}"
-        )
-
-        st.info(
-            "💡 Please index your documents first."
-        )
-
+        st.warning(f"⚠️ {error}")
+        st.info("💡 Please index your documents first.")
         st.stop()
-
     except Exception as error:
-
-        st.error(
-            "❌ Initialization failed: "
-            f"{type(error).__name__}: {error}"
-        )
-
+        st.error(f"❌ Initialization failed: {type(error).__name__}: {error}")
         st.stop()
 
     # --------------------------------------------------------
-    # Main layout
+    # UI Layout setup
     # --------------------------------------------------------
-
     chat_column, help_column = st.columns(
         [2.2, 1],
         gap="large",
     )
 
-    # ========================================================
-    # CHAT COLUMN
-    # ========================================================
-
     with chat_column:
+        st.subheader("💬 Legal Chatbot")
 
-        st.subheader(
-            "💬 Legal Chatbot"
-        )
-
-        user_input = st.chat_input(
-            "Ask your legal question in German..."
-        )
+        user_input = st.chat_input("Ask your legal question in German...")
 
         chat_area = st.container(
             height=620,
@@ -613,56 +465,35 @@ def main() -> None:
         )
 
         with chat_area:
-
             render_chat_history()
 
-    # ========================================================
-    # HELP COLUMN
-    # ========================================================
-
     with help_column:
+        selected_question = render_help_column()
 
-        selected_question = (
-            render_help_column()
-        )
+    # --------------------------------------------------------
+    # Input Selection & Execution
+    # --------------------------------------------------------
+    question = selected_question if selected_question else user_input
 
-    # ========================================================
-    # DETERMINE QUESTION
-    # ========================================================
-
-    question = (
-        selected_question
-        if selected_question
-        else user_input
-    )
-
-    if not question:
-        return
-
-    if not question.strip():
+    if not question or not question.strip():
         return
 
     question = question.strip()
+    print("???? rag_mode:", rag_mode, "| retriever_mode:", retriever_mode)
+    spinner_text = (
+        f"Searching database with standard pipeline (Retriever Mode {retriever_mode})..."
+        if rag_mode == 1
+        else "Executing agentic retrieval loop with query rewrites..."
+    )
 
-    # ========================================================
-    # PROCESS QUESTION
-    # ========================================================
-
-    with st.spinner(
-        "Searching the database and "
-        "generating answer..."
-    ):
-
+    with st.spinner(spinner_text):
         process_question(
-            rag_chain,
-            question,
+            resources=resources,
+            user_input=question,
+            rag_mode=rag_mode,
         )
 
-    # --------------------------------------------------------
-    # Rerun so that the new question and answer are rendered
-    # together in the correct order.
-    # --------------------------------------------------------
-
+    # Trigger UI rerun to display question and answer sequentially
     st.rerun()
 
 
