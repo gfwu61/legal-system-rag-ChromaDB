@@ -9,6 +9,11 @@ on:
 jobs:
   run-tests:
     runs-on: ubuntu-latest
+    
+    # ✅ Einmal hier für ALLE Steps definieren
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
     steps:
       - name: Checkout Code
@@ -25,11 +30,28 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev]
 
+      # 🔍 Debug: Prüfe Umgebungsvariablen
+      - name: Debug Environment Variables
+        run: |
+          echo "=== Debug Information ==="
+          echo "OPENAI_API_KEY gesetzt: ${OPENAI_API_KEY:+YES:-NO}"
+          echo "OPENAI_API_KEY Länge: ${#OPENAI_API_KEY}"
+          if [ -n "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY Prefix: ${OPENAI_API_KEY:0:8}..."
+          fi
+          echo ""
+          echo "HF_TOKEN gesetzt: ${HF_TOKEN:+YES:-NO}"
+          echo "HF_TOKEN Länge: ${#HF_TOKEN}"
+          if [ -n "$HF_TOKEN" ]; then
+            echo "HF_TOKEN Prefix: ${HF_TOKEN:0:8}..."
+          fi
+          echo "========================="
+
       - name: Run Pytest 
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: pytest -v --cov=src
+        run: |
+          echo "Starting pytest..."
+          pytest -v --cov=src
+          echo "Pytest finished with exit code: $?"
 
       # Optional: Coverage Report hochladen
       - name: Upload Coverage
