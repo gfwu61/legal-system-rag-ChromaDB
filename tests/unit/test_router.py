@@ -46,7 +46,7 @@ TEST_CASES = [
 
 
 
-# (Ihre Fixture 'router_chain' und 'TEST_CASES' bleiben hier exakt gleich)
+# (Die Fixture 'router_chain' und 'TEST_CASES' bleiben hier exakt gleich)
 
 @pytest.mark.parametrize("question, expected_route, expected_paragraphs", TEST_CASES)
 def test_router_decision(router_chain, question, expected_route, expected_paragraphs):

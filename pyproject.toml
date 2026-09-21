@@ -46,14 +46,14 @@ dev = [
     "pytest-cov",
 ]
 
-pdf = [
-    "pypdf>=4.0.0",
-]
+#pdf = [
+#    "pypdf>=4.0.0",
+#]
 
 # OPTIONAL: Falls du lokal weiterhin FlashRank testen möchtest
-local-rerank = [
-    "flashrank>=0.2.0",
-]
+#local-rerank = [
+#    "flashrank>=0.2.0",
+#]
 
 [project.scripts]
 legal-ingest = "legal_system_rag.ingest_documents:main"
